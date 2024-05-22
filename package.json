@@ -1,0 +1,27 @@
+{
+  "name": "satellite-viewer",
+  "version": "1.0.0",
+  "description": "a developing platform for the orchestrator project",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "start": "node server.js"
+  },
+  "keywords": [
+    "satellite",
+    "viewer",
+    "orchestrator"
+  ],
+  "author": "S. Henn",
+  "license": "ISC",
+  "dependencies": {
+    "cesium": "^1.108.0",
+    "copy-webpack-plugin": "^11.0.0",
+    "dotenv": "^16.3.1",
+    "express": "^4.18.2",
+    "node-fetch": "^3.3.2"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.1"
+  }
+}

@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Positions dev station</title>
+    <script src="https://cesium.com/downloads/cesiumjs/releases/1.108/Build/Cesium/Cesium.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/satellite.js/4.0.0/satellite.min.js"></script>
+    <script type="text/javascript" src="https://cdn.jsdelivr.net/jquery/latest/jquery.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@easepick/bundle@1.2.1/dist/index.umd.min.js"></script>
+    <link rel="stylesheet" type="text/css" href="https://cdn.jsdelivr.net/npm/daterangepicker/daterangepicker.css" />
+    <link href="https://cesium.com/downloads/cesiumjs/releases/1.108/Build/Cesium/Widgets/widgets.css" rel="stylesheet">
+    <link rel="stylesheet" href="/stylesheets/style.css">
+    <link rel="stylesheet" href="/stylesheets/datepicker.css">
+    <script type="module" src="/javascripts/dynamics.js"></script>
+    <script type="module" src="/javascripts/tle.js"></script>
+</head>
+<body>
+    <div class="row">
+        <div class="column left">
+            <textarea class="tleInput" id="tleTextArea" placeholder='SAOCOM-1B&#13;&#10;1 46265U 20059A   23219.44152368  .00000647  00000-0  87861-4 0  9990&#13;&#10;2 46265  97.8904  44.2657 0001383  88.6861 271.4511 14.82150595158748' style="height: 60px;"></textarea>
+            <div class="input-container">
+                <input type="number" id="semiMajorAxis" placeholder="a [Km]" title="SemiMajor Axis in Km" min="250" max="120000">
+                <input type="number" id="eccentricity" placeholder="ecc." title="Eccentricity" min="0" max="0.9999">
+                <input type="number" id="inclination" placeholder="inc. [°]" title="Inclination in degrees" min="0" max="180">
+                <input type="number" id="rightAscension" placeholder="RAAN [°]" title="RAAN in degrees" min="-360" max="360">
+                <input type="number" id="argumentOfPerigee" placeholder="arg. p [°]" title="Arg. of perigee in degrees" min="-360" max="360">
+                <input type="number" id="anomaly" placeholder="anom [°]" title="Mean anomaly in degrees" min="-360" max="360">
+
+            </div>
+            <div class="date-container">
+                <input class="date-input" type="dateInput" id="datepicker"/>
+                <label class="date-input-label" for="quantity">Step [s]: </label>
+                <input class="date-input" type="number" id="timestepInSeconds" min="1" max="160" step="1" value="30">
+            </div>
+            <div class="button-container">
+                <button id="propagateFromTLE">Propa. TLE</button>
+                <button id="propagateFromElements">Prop. Elem.</button>
+                <button id="clearButton">Clear</button>
+                <button id="tleButton">TLEs!</button>
+                <button id="eqButton">EQ</button>
+            </div>
+            <div class="input-container" style="padding-top: 10px;">
+                <input type="text3" id="observerCoordinates" placeholder="lat,lon,height">
+                <input type="text3" id="apiKey" placeholder="apiKey">
+                <button class="button-generic" id="addStation">Add Station</button>
+                <button class="button-generic" id="computeAccess" style="margin-right: 0px;">Compute access intervals</button>
+            </div>
+        </div>
+        <div class="column right">
+            <div id="cesiumContainer">
+                <!--<iframe src="/cesium"></iframe>-->
+            </div>
+        </div>
+    </div>
+<div class="row">
+    <figure class="tabBlock">
+        <ul class="tabBlock-tabs">
+            <li class="tabBlock-tab is-active">ECI</li>
+            <li class="tabBlock-tab">ECEF</li>
+            <li class="tabBlock-tab">JSON-ECI</li>
+            <li class="tabBlock-tab">Access intervals</li>
+        </ul>
+        <div class="tabBlock-content">
+            <div class="tabBlock-pane">
+                <textarea id="eciCoordinates" placeholder="X,Y,Z ECI"></textarea>
+            </div>
+            <div class="tabBlock-pane" id="ECEFcoord">
+                <textarea id="ecefCoordinates" placeholder="X,Y,Z ECI"></textarea>
+            </div>
+            <div class="tabBlock-pane" id="ECEFcoord">
+                <textarea id="jsonECI" placeholder="X,Y,Z ECI"></textarea>
+            </div>
+            <div class="tabBlock-pane" id="accessIntervals">
+                <textarea id="access">Access intervals are computed</textarea>
+            </div>
+        </div>
+    </figure>
+</div>
+ </div>
+
+    <script>
+    document.getElementById("tleButton").addEventListener("click", function() {
+      var link = "https://celestrak.org/NORAD/elements/gp.php?GROUP=active&FORMAT=tle"; 
+      window.open(link, "_blank");
+    });
+
+    var TabBlock = {
+      s: {
+        animLen: 200
+      },
+      
+      init: function() {
+        TabBlock.bindUIActions();
+        TabBlock.hideInactive();
+      },
+      
+      bindUIActions: function() {
+        $('.tabBlock-tabs').on('click', '.tabBlock-tab', function(){
+          TabBlock.switchTab($(this));
+        });
+      },
+      
+      hideInactive: function() {
+        var $tabBlocks = $('.tabBlock');
+        
+        $tabBlocks.each(function(i) {
+          var 
+            $tabBlock = $($tabBlocks[i]),
+            $panes = $tabBlock.find('.tabBlock-pane'),
+            $activeTab = $tabBlock.find('.tabBlock-tab.is-active');
+          
+          $panes.hide();
+          $($panes[$activeTab.index()]).show();
+        });
+      },
+      
+      switchTab: function($tab) {
+        var $context = $tab.closest('.tabBlock');
+        if (!$tab.hasClass('is-active')) {
+          $tab.siblings().removeClass('is-active');
+          $tab.addClass('is-active');
+          TabBlock.showPane($tab.index(), $context);
+        }
+       },
+      
+      showPane: function(i, $context) {
+        var $panes = $context.find('.tabBlock-pane');
+        $panes.slideUp(TabBlock.s.animLen);
+        $($panes[i]).slideDown(TabBlock.s.animLen);
+      }
+    };
+
+    $(function() {
+      TabBlock.init();
+    });
+
+    </script>
+</body>
+</html>

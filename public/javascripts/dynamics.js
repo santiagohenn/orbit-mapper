@@ -278,14 +278,13 @@ function renderCesium() {
     const jsonNorm = JSON.stringify(normalizedPositions, null, 2);
 
     // output the coordinates
-
     let csvRows = eciPositions.map(obj => Object.values(obj).join(','));
-    let csvHeader = "Date[UTCG],x[km],y[km],z[km]" + '\r\n';
+    let csvHeader = "Date[UTCG],x[m],y[m],z[m]" + '\r\n';
     let csvData = csvHeader + csvRows.join('\r\n');
     eciCoordinates.value = csvData;
 
     csvRows = ecefPositions.map(obj => Object.values(obj).join(','));
-    csvHeader = "Date[UTCG],x[km],y[km],z[km],SSP latitude[deg],SSP longitude[deg]" + '\r\n';
+    csvHeader = "Date[UTCG],x[m],y[m],z[m],SSP latitude[deg],SSP longitude[deg]" + '\r\n';
     csvData = csvHeader + csvRows.join('\r\n');
     ecefCoordinates.value = csvData;
 

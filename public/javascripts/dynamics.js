@@ -16,7 +16,7 @@ const timestepInSecondsField = document.getElementById('timestepInSeconds');
 const addStation = document.getElementById('addStation');
 const observerCoordinates = document.getElementById('observerCoordinates');
 const computeAccess = document.getElementById('computeAccess');
-const access = document.getElementById('access');
+const accessTextArea = document.getElementById('accessTextArea');
 
 import { buildLine1, buildLine2 } from './tle.js';
 
@@ -135,6 +135,9 @@ function initCesiumRender() {
     scene = viewer.scene;
     time = viewer.time;
     scene.screenSpaceCameraController.minimumZoomDistance = 6400000; // meters
+    scene.screenSpaceCameraController.rotateFactor = 0.01;    // Default is 1.0
+    scene.screenSpaceCameraController.translateFactor = 0.01; // Default is 1.0
+    scene.screenSpaceCameraController.zoomFactor = 0.01;      // Default is 1.0
 
     // const scene = viewer.scene;
     const globe = scene.globe;
@@ -281,13 +284,17 @@ function renderCesium() {
     const jsonNorm = JSON.stringify(normalizedPositions, null, 2);
 
     // output the coordinates
-    let csvRows = eciPositions.map(obj => Object.values(obj).join(','));
-    let csvHeader = "Date[UTCG],x[m],y[m],z[m]" + '\r\n';
+    let csvRows = eciPositions.slice(1).map(obj => 
+        [obj.time, ...obj.pos.map(num => num.toFixed(3))].join('\t')
+    );
+    let csvHeader = "Date[UTCG]\t\tx[m]\t\ty[m]\t\tz[m]" + '\r\n';
     let csvData = csvHeader + csvRows.join('\r\n');
     eciCoordinates.value = csvData;
 
-    csvRows = ecefPositions.map(obj => Object.values(obj).join(','));
-    csvHeader = "Date[UTCG],x[m],y[m],z[m],SSP latitude[deg],SSP longitude[deg]" + '\r\n';
+    csvRows = ecefPositions.slice(1).map(obj => 
+        [obj.time, ...obj.position.map(num => num.toFixed(3))].join('\t')
+    );
+    csvHeader = "Date[UTCG]\t\tx[m]\t\ty[m]\t\tz[m]\t\tlat[deg] lon[deg]" + '\r\n';
     csvData = csvHeader + csvRows.join('\r\n');
     ecefCoordinates.value = csvData;
 
@@ -518,7 +525,6 @@ function addFacility() {
 computeAccess.addEventListener('click', function() {
 
     removeAllEntities();
-
     let uriData = [];
     let tleArray = tleText.value.split('\n');
     // let start = Cesium.JulianDate.fromIso8601(iso8601Start);
@@ -554,7 +560,7 @@ computeAccess.addEventListener('click', function() {
     computeAccess.textContent = "Computing...";
     computeAccess.disabled = true;
     console.log("API req: /api/access/" + uriReq);
-
+    
     fetch("/api/access/" + uriReq)
       .then(response => {
         return response.json();
@@ -570,10 +576,10 @@ computeAccess.addEventListener('click', function() {
             const [value1, value2, value3] = obj.split(",");
             //const startDateISO = toISOString(obj.start);
             //const endDateISO = toISOString(obj.end);
-            const row = `${value1},${value2},${value3}`;
+            const row = `${value1},${value2},${formatValue(Number(value3), 3)}`;
             csvRows.push(row);
         });
-        access.value = csvRows.join("\n");
+        accessTextArea.value = csvRows.join("\n");
       })
       .catch(error => {
         console.error('Error computing access intervals:', error);

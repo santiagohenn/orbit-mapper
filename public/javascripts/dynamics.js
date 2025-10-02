@@ -210,7 +210,7 @@ function renderCesium() {
     viewer.clock.stopTime = stop.clone();
     viewer.clock.currentTime = start.clone();
     viewer.timeline.zoomTo(start, stop);
-    viewer.clock.multiplier = 40;
+    viewer.clock.multiplier = 30;
     viewer.clock.clockRange = Cesium.ClockRange.LOOP_STOP;
 
     let ecefPositionsOverTime = new Cesium.SampledPositionProperty(Cesium.ReferenceFrame.FIXED);
@@ -218,7 +218,8 @@ function renderCesium() {
 
     let eciPositions = [];
     let ecefPositions = [];
-    let positionsToPlot = [];
+    let positionsToPlotECEF = [];
+    let positionsToPlotECI = [];
     let normalizedPositions = [];
 
     for (let i = 0; i <= totalSeconds; i+= timestepInSeconds) {
@@ -245,7 +246,8 @@ function renderCesium() {
                                                    ecefPos.y * 1000, 
                                                    ecefPos.z * 1000);
 
-        positionsToPlot.push(ecefPosition);
+        positionsToPlotECEF.push(ecefPosition);
+        positionsToPlotECI.push(eciPosition);
         ecefPositionsOverTime.addSample(timeStamp, ecefPosition);
         eciPositionsOverTime.addSample(timeStamp, eciPosition);
 
@@ -335,10 +337,21 @@ function renderCesium() {
         });
     } */
 
-    let orbit = new Cesium.Entity();
-    orbit = viewer.entities.add({
+    // Create a polyline that transforms ECI positions to ECEF at the current time
+    let orbit = viewer.entities.add({
         polyline: {
-            positions: positionsToPlot,
+            positions: new Cesium.CallbackProperty(function(time, result) {
+                // Get the ICRF to FIXED transform for the current time
+                const icrfToFixed = Cesium.Transforms.computeIcrfToFixedMatrix(time);
+                if (!Cesium.defined(icrfToFixed)) {
+                    // Fallback: just show ECI positions
+                    return positionsToPlotECI;
+                }
+                // Transform each ECI position to ECEF for display
+                return positionsToPlotECI.map(function(eciPos) {
+                    return Cesium.Matrix3.multiplyByVector(icrfToFixed, eciPos, new Cesium.Cartesian3());
+                });
+            }, false),
             width: 2,
             material: color,
         },

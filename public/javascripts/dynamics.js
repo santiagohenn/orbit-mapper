@@ -43,7 +43,7 @@ const picker = new easepick.create({
     }
 });
 
-var viewer, scene, time;
+let viewer, scene, time;
 let timestepInSeconds, iso8601Start, iso8601End;
 
 document.addEventListener('DOMContentLoaded', function() {
@@ -134,6 +134,7 @@ function initCesiumRender() {
 
     scene = viewer.scene;
     time = viewer.time;
+    scene.screenSpaceCameraController.minimumZoomDistance = 6400000; // meters
 
     // const scene = viewer.scene;
     const globe = scene.globe;

@@ -23,7 +23,7 @@ import { buildLine1, buildLine2 } from './tle.js';
 const picker = new easepick.create({
     element: "#datepicker",
     css: [
-        "https://cdn.jsdelivr.net/npm/@easepick/bundle@1.2.1/dist/index.css",
+        "/stylesheets/index.css",
         '/stylesheets/datepicker.css',
     ],
     zIndex: 10,
@@ -98,7 +98,7 @@ function addEQPlane() {
           180.0,0.0,0.0,
         ]),
         minimumHeights: [6000000.0, 6000000.0, 6000000.0, 6000000.0, 6000000.0],
-        material: Cesium.Color.YELLOW.withAlpha(0.4),
+        material: Cesium.Color.YELLOW.withAlpha(0.3),
       },
     });
 }
@@ -124,7 +124,7 @@ function initCesiumRender() {
         )
       ),
       orderIndependentTranslucency: false,
-      baseLayerPicker: false, 
+      baseLayerPicker: true, 
       geocoder: false, 
       homeButton: true, 
       infoBox: false,

@@ -270,7 +270,7 @@ textarea {
 .button-container {
   display: flex;
   flex-wrap: wrap;
-  margin-bottom: 10px;
+  margin-bottom: 0px;
 }
 
 .button-container button {
@@ -434,7 +434,7 @@ ol, ul {
     padding: 0;
     min-width: 5vw;
     max-width: 40vw;
-    width: 40vw;
+    width: 33vw;
     transition: box-shadow 0.2s;
 }
 
@@ -494,9 +494,9 @@ ol, ul {
 /* Observer/API fields wider and with bottom margin */
 .input-container input#observerCoordinates,
 .input-container input#apiKey {
-    width: 48%;
-    min-width: 120px;
-    margin-right: 4%;
+    width: 25%;
+    margin-right: 2%;
+    margin-top: 2px;
     margin-bottom: 12px;
 }
 
@@ -505,16 +505,30 @@ ol, ul {
 }
 
 /* Compute access intervals button: full width, margin top */
-.input-container #computeAccess {
-    width: 100%;
+.input-container #addStation {
+    width: 32%;
+    margin-right: 2%;
     min-width: 0;
-    margin-top: 8px;
-    margin-bottom: 0;
+    margin-top: 2px;
+    margin-bottom: 12px;
+    margin-left: 0;
+    display: block;
+    flex: none;
+}
+
+/* Compute access intervals button: full width, margin top */
+.input-container #computeAccess {
+    width: 32%;
+    min-width: 0;
+    margin-top: 2px;
+    margin-bottom: 12px;
     margin-left: 0;
     margin-right: 0;
     display: block;
     flex: none;
 }
+
+
 
 /* Stack observer/api fields and button on mobile */
 @media screen and (max-width: 700px) {

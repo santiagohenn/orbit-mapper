@@ -13,8 +13,10 @@
   <link href="https://cesium.com/downloads/cesiumjs/releases/1.108/Build/Cesium/Widgets/widgets.css" rel="stylesheet">
   <link rel="stylesheet" href="/stylesheets/style.css">
   <link rel="stylesheet" href="/stylesheets/datepicker.css">
+  <link rel="stylesheet" href="/stylesheets/coloris.min.css" />
   <script type="module" src="/javascripts/dynamics.js"></script>
   <script type="module" src="/javascripts/tle.js"></script>
+  <script type="text/javascript" src="/javascripts/coloris.min.js"></script>
 </head>
 
 <body>
@@ -25,39 +27,50 @@
     </div>
     <div class="menu-content">
       <textarea class="tleInput" id="tleTextArea"
-        placeholder='SAOCOM-1B&#13;&#10;1 46265U 20059A   23219.44152368  .00000647  00000-0  87861-4 0  9990&#13;&#10;2 46265  97.8904  44.2657 0001383  88.6861 271.4511 14.82150595158748'
-        style="height: 60px;"></textarea>
-      <div class="input-container">
-        <input type="number" id="semiMajorAxis" placeholder="a [Km]" title="SemiMajor Axis in Km" min="250"
-          max="120000">
+        placeholder='SAOCOM-1B&#13;&#10;1 46265U 20059A   23219.44152368  .00000647  00000-0  87861-4 0  9990&#13;&#10;2 46265  97.8904  44.2657 0001383  88.6861 271.4511 14.82150595158748'></textarea>
+      
+      <div class="input-row">
+        <input type="number" id="semiMajorAxis" placeholder="a [Km]" title="SemiMajor Axis in Km" min="250" max="120000">
         <input type="number" id="eccentricity" placeholder="ecc." title="Eccentricity" min="0" max="0.9999">
         <input type="number" id="inclination" placeholder="inc. [°]" title="Inclination in degrees" min="0" max="180">
+      </div>
+      <div class="input-row">
         <input type="number" id="rightAscension" placeholder="RAAN [°]" title="RAAN in degrees" min="-360" max="360">
-        <input type="number" id="argumentOfPerigee" placeholder="arg. p [°]" title="Arg. of perigee in degrees"
-          min="-360" max="360">
+        <input type="number" id="argumentOfPerigee" placeholder="arg. p [°]" title="Arg. of perigee in degrees" min="-360" max="360">
         <input type="number" id="anomaly" placeholder="anom [°]" title="Mean anomaly in degrees" min="-360" max="360">
       </div>
-      <div class="date-container">
-        <input class="date-input" type="dateInput" id="datepicker" />
-        <label class="date-input-label" for="quantity">Step [s]: </label>
-        <input class="date-input" type="number" id="timestepInSeconds" min="1" max="160" step="1" value="30">
+      
+      <div class="input-row date-step-row">
+        <div class="date-step-group">
+          <input class="date-input" type="dateInput" id="datepicker" />
+          <label class="date-input-label" for="timestepInSeconds">Step [s]: </label>
+          <input class="step-input" type="number" id="timestepInSeconds" min="1" max="160" step="1" value="30">
+        </div>
       </div>
-      <div class="button-container">
+      
+      <div class="input-row">
         <button id="propagateFromTLE">Propa. TLE</button>
         <button id="propagateFromElements">Prop. Elem.</button>
         <button id="clearButton">Clear</button>
-        <button id="tleButton">TLEs!</button>
-        <button id="eqButton">EQ</button>
       </div>
-      <div class="input-container" style="padding-top: 10px;">
+      
+      <div class="input-row">
         <input type="text3" id="observerCoordinates" placeholder="lat[°],lon[°],height[m]">
         <button class="button-generic" id="addStation">Add Station</button>
-        <button class="button-generic" id="computeAccess">Compute access intervals</button>
+        <button class="button-generic" id="computeAccess">Compute Access</button>
       </div>
+      
+      <div class="input-row">
+        <button id="tleButton">TLEs!</button>
+        <button id="eqButton">EQ</button>
+        <input id="color-picker" type="text" value="#d062df91" data-coloris>
+      </div>
+      
     </div>
   </div>
   <div class="row">
     <div class="column right">
+      <div id="toolbar"></div>
       <div id="cesiumContainer">
         <!--<iframe src="/cesium"></iframe>-->
       </div>
@@ -145,21 +158,31 @@
       TabBlock.init();
     });
 
-    document.getElementById("minimizeMenu").addEventListener("click", function () {
+    function minimizeMenu() {
       var content = document.querySelector("#menuPanel .menu-content");
       var panel = document.getElementById("menuPanel");
       var header = document.querySelector("#menuPanel .menu-header");
       if (content.style.display === "none") {
         content.style.display = "block";
-        panel.style.width = "";
-        header.style.width = "";
+        //panel.style.width = "";
+        //header.style.width = "";
         this.innerHTML = "&#x2212;";
       } else {
         content.style.display = "none";
-        panel.style.width = "20vw";
-        header.style.width = "20vw";
+        //panel.style.width = "20vw";
+        //header.style.width = "20vw";
         this.innerHTML = "&#x25B2;";
       }
+    }
+
+    document.getElementById("minimizeMenu").addEventListener("click", minimizeMenu);
+    
+      
+  </script>
+  <script type="text/javascript">
+    Coloris({
+      theme: 'polaroid',
+      themeMode: 'dark',
     });
   </script>
 </body>

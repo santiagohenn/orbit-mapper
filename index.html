@@ -20,93 +20,155 @@
 </head>
 
 <body>
-  <div id="menuPanel" class="menu-panel">
+  <!-- Hamburger Menu Toggle Button -->
+  <button class="menu-toggle" id="menuToggle" aria-label="Toggle Navigation Menu">
+    <span></span>
+    <span></span>
+    <span></span>
+  </button>
+
+  <!-- Menu Overlay -->
+  <div class="menu-overlay" id="menuOverlay"></div>
+
+  <!-- Main Slide-in Menu -->
+  <nav class="slide-menu" id="slideMenu" role="navigation" aria-label="Main Navigation">
+    <!-- Menu Header -->
     <div class="menu-header">
-      <span>Parámetros</span>
-      <button id="minimizeMenu" class="minimize-btn" title="Minimize">&#x2212;</button>
+      <h2 class="menu-title">Parámetros</h2>
+      <p class="menu-subtitle">Satellite and propagation parameters</p>
     </div>
-    <div class="menu-content">
-      <textarea class="tleInput" id="tleTextArea"
-        placeholder='SAOCOM-1B&#13;&#10;1 46265U 20059A   23219.44152368  .00000647  00000-0  87861-4 0  9990&#13;&#10;2 46265  97.8904  44.2657 0001383  88.6861 271.4511 14.82150595158748'></textarea>
-      
-      <div class="input-row">
-        <input type="number" id="semiMajorAxis" placeholder="a [Km]" title="SemiMajor Axis in Km" min="250" max="120000">
-        <input type="number" id="eccentricity" placeholder="ecc." title="Eccentricity" min="0" max="0.9999">
-        <input type="number" id="inclination" placeholder="inc. [°]" title="Inclination in degrees" min="0" max="180">
+
+    <!-- TLE Input Section -->
+    <section class="menu-section">
+      <div class="menu-input-group">
+        <label for="tleTextArea">TLE Data</label>
+        <textarea id="tleTextArea" class="tleInput" 
+                  placeholder="SAOCOM-1B&#13;&#10;1 46265U 20059A   23219.44152368  .00000647  00000-0  87861-4 0  9990&#13;&#10;2 46265  97.8904  44.2657 0001383  88.6861 271.4511 14.82150595158748"
+                  rows="3"></textarea>
       </div>
-      <div class="input-row">
-        <input type="number" id="rightAscension" placeholder="RAAN [°]" title="RAAN in degrees" min="-360" max="360">
-        <input type="number" id="argumentOfPerigee" placeholder="arg. p [°]" title="Arg. of perigee in degrees" min="-360" max="360">
-        <input type="number" id="anomaly" placeholder="anom [°]" title="Mean anomaly in degrees" min="-360" max="360">
-      </div>
+    </section>
+
+    <!-- Orbital Elements Section -->
+    <section class="menu-section">
+      <h3 class="menu-section-title">Orbital Elements</h3>
       
-      <div class="input-row date-step-row">
-        <div class="date-step-group">
-          <input class="date-input" type="dateInput" id="datepicker" />
-          <label class="date-input-label" for="timestepInSeconds">Step [s]: </label>
-          <input class="step-input" type="number" id="timestepInSeconds" min="1" max="160" step="1" value="30">
+      <div class="menu-input-row">
+        <div class="menu-input-group">
+          <label for="semiMajorAxis">Semi-Major Axis (km)</label>
+          <input type="number" id="semiMajorAxis" placeholder="a [Km]" min="250" max="120000">
+        </div>
+        <div class="menu-input-group">
+          <label for="eccentricity">Eccentricity</label>
+          <input type="number" id="eccentricity" placeholder="ecc." min="0" max="0.9999" step="0.0001">
+        </div>
+        <div class="menu-input-group">
+          <label for="inclination">Inclination (°)</label>
+          <input type="number" id="inclination" placeholder="inc. [°]" min="0" max="180">
         </div>
       </div>
-      
-      <div class="input-row">
-        <button id="propagateFromTLE">Propa. TLE</button>
-        <button id="propagateFromElements">Prop. Elem.</button>
-        <button id="clearButton">Clear</button>
+
+      <div class="menu-input-row">
+        <div class="menu-input-group">
+          <label for="rightAscension">RAAN (°)</label>
+          <input type="number" id="rightAscension" placeholder="RAAN [°]" min="-360" max="360">
+        </div>
+        <div class="menu-input-group">
+          <label for="argumentOfPerigee">Arg. of Perigee (°)</label>
+          <input type="number" id="argumentOfPerigee" placeholder="arg. p [°]" min="-360" max="360">
+        </div>
+        <div class="menu-input-group">
+          <label for="anomaly">Mean Anomaly (°)</label>
+          <input type="number" id="anomaly" placeholder="anom [°]" min="-360" max="360">
+        </div>
       </div>
+    </section>
+
+    <!-- Time & Propagation Section -->
+    <section class="menu-section">
+      <h3 class="menu-section-title">Time & Propagation</h3>
       
-      <div class="input-row">
-        <input type="text3" id="observerCoordinates" placeholder="lat[°],lon[°],height[m]">
-        <button class="button-generic" id="addStation">Add Station</button>
-        <button class="button-generic" id="computeAccess">Compute Access</button>
+      <!-- Two-column datetime layout with separate label and input rows -->
+      <div class="menu-datetime-labels">
+        <label for="datepicker" class="datetime-label-main">Date & Time</label>
+        <label for="timestepInSeconds" class="datetime-label-step">Step (s)</label>
       </div>
+      <div class="menu-datetime-inputs">
+        <input type="text" id="datepicker" class="datetime-input-main">
+        <input type="number" id="timestepInSeconds" class="datetime-input-step" min="1" max="160" step="1" value="30">
+      </div>
+
+      <div class="menu-button-row">
+        <button id="propagateFromTLE" class="menu-button">Prop. TLE</button>
+        <button id="propagateFromElements" class="menu-button">Prop. Elements</button>
+        <button id="clearButton" class="menu-button">Clear</button>
+      </div>
+    </section>
+
+    <!-- Ground Station Section -->
+    <section class="menu-section">
+      <h3 class="menu-section-title">Ground Station</h3>
       
-      <div class="input-row">
-        <button id="tleButton">TLEs!</button>
-        <button id="eqButton">EQ</button>
+      <div class="menu-input-group">
+        <label for="observerCoordinates">Observer Coordinates</label>
+        <input type="text" id="observerCoordinates" placeholder="lat[°],lon[°],height[m]">
+      </div>
+
+      <div class="menu-button-row">
+        <button id="addStation" class="menu-button">Add Station</button>
+        <button id="computeAccess" class="menu-button">Compute Access</button>
+      </div>
+    </section>
+
+    <!-- Visualization Options Section -->
+    <section class="menu-section">
+      <h3 class="menu-section-title">Display Options</h3>
+      
+      <div class="checkbox-grid">
+        <label class="menu-checkbox">
+          <input type="checkbox" id="showOrbits">
+          <span class="checkmark"></span>
+          <span class="checkbox-label">Show satellite orbits</span>
+        </label>
+        
+        <label class="menu-checkbox">
+          <input type="checkbox" id="showGroundTracks">
+          <span class="checkmark"></span>
+          <span class="checkbox-label">Display ground tracks</span>
+        </label>
+        
+        <label class="menu-checkbox">
+          <input type="checkbox" id="showAccessWindows">
+          <span class="checkmark"></span>
+          <span class="checkbox-label">Show access windows</span>
+        </label>
+        
+        <label class="menu-checkbox">
+          <input type="checkbox" id="realtimeUpdates">
+          <span class="checkmark"></span>
+          <span class="checkbox-label">Enable real-time updates</span>
+        </label>
+      </div>
+
+      <div class="menu-input-group">
+        <label for="color-picker">Satellite Color</label>
         <input id="color-picker" type="text" value="#d062df91" data-coloris>
       </div>
-      
-    </div>
-  </div>
 
-  <!-- Second menu panel -->
-  <div id="menuPanel2" class="menu-panel menu-panel-2">
-    <div class="menu-header">
-      <span>Options</span>
-      <button id="minimizeMenu2" class="minimize-btn" title="Minimize">&#x2212;</button>
-    </div>
-    <div class="menu-content">
-      <!-- Custom styled checkboxes -->
-      <label class="checkbox-container">
-        <input type="checkbox" id="option1">
-        <span class="checkmark"></span>
-        <span class="checkbox-label">Show satellite orbits</span>
-      </label>
-      
-      <label class="checkbox-container">
-        <input type="checkbox" id="option2">
-        <span class="checkmark"></span>
-        <span class="checkbox-label">Display ground tracks</span>
-      </label>
-      
-      <label class="checkbox-container">
-        <input type="checkbox" id="option3">
-        <span class="checkmark"></span>
-        <span class="checkbox-label">Show access windows</span>
-      </label>
-      
-      <label class="checkbox-container">
-        <input type="checkbox" id="option4">
-        <span class="checkmark"></span>
-        <span class="checkbox-label">Enable real-time updates</span>
-      </label>
-      
-      <div class="input-row">
-        <button class="button-generic">Apply Settings</button>
-        <button class="button-generic">Reset</button>
+      <div class="menu-button-row">
+        <button class="menu-button">Apply Settings</button>
+        <button class="menu-button">Reset</button>
       </div>
-    </div>
-  </div>
+    </section>
+
+    <!-- External Tools Section -->
+    <section class="menu-section">
+      <h3 class="menu-section-title">Tools</h3>
+      <div class="menu-button-row">
+        <button id="tleButton" class="menu-button">Get TLEs</button>
+        <button id="eqButton" class="menu-button">EQ</button>
+      </div>
+    </section>
+  </nav>
 
   <div class="row">
     <div class="column right">
@@ -143,11 +205,87 @@
   </div>
 
   <script>
+    /* ===================================
+       MODERN SLIDE-IN MENU FUNCTIONALITY
+       =================================== */
+    
+    // Menu state management
+    class SlideMenu {
+      constructor() {
+        this.menuToggle = document.getElementById('menuToggle');
+        this.menuOverlay = document.getElementById('menuOverlay');
+        this.slideMenu = document.getElementById('slideMenu');
+        this.isMenuOpen = false;
+        
+        this.init();
+      }
+      
+      init() {
+        // Bind event listeners
+        this.menuToggle.addEventListener('click', () => this.toggleMenu());
+        this.menuOverlay.addEventListener('click', () => this.closeMenu());
+        
+        // Handle escape key
+        document.addEventListener('keydown', (e) => {
+          if (e.key === 'Escape' && this.isMenuOpen) {
+            this.closeMenu();
+          }
+        });
+        
+        // Prevent body scroll when menu is open
+        this.slideMenu.addEventListener('scroll', (e) => {
+          e.stopPropagation();
+        });
+      }
+      
+      toggleMenu() {
+        if (this.isMenuOpen) {
+          this.closeMenu();
+        } else {
+          this.openMenu();
+        }
+      }
+      
+      openMenu() {
+        this.isMenuOpen = true;
+        this.menuToggle.classList.add('active');
+        this.menuOverlay.classList.add('active');
+        this.slideMenu.classList.add('active');
+        
+        // Prevent body scroll
+        document.body.style.overflow = 'hidden';
+        
+        // Focus management for accessibility
+        this.slideMenu.focus();
+      }
+      
+      closeMenu() {
+        this.isMenuOpen = false;
+        this.menuToggle.classList.remove('active');
+        this.menuOverlay.classList.remove('active');
+        this.slideMenu.classList.remove('active');
+        
+        // Restore body scroll
+        document.body.style.overflow = '';
+      }
+    }
+    
+    // Initialize menu when DOM is ready
+    document.addEventListener('DOMContentLoaded', () => {
+      const menu = new SlideMenu();
+    });
+
+    /* ===================================
+       EXISTING FUNCTIONALITY
+       =================================== */
+
+    // TLE Button functionality
     document.getElementById("tleButton").addEventListener("click", function () {
       var link = "https://celestrak.org/NORAD/elements/gp.php?GROUP=active&FORMAT=tle";
       window.open(link, "_blank");
     });
 
+    // Tab functionality (existing)
     var TabBlock = {
       s: {
         animLen: 200
@@ -194,43 +332,10 @@
       }
     };
 
+    // Initialize tabs when jQuery is ready
     $(function () {
       TabBlock.init();
     });
-
-    function minimizeMenu() {
-      var content = document.querySelector("#menuPanel .menu-content");
-      var panel = document.getElementById("menuPanel");
-      var header = document.querySelector("#menuPanel .menu-header");
-      if (content.style.display === "none") {
-        content.style.display = "block";
-        panel.classList.remove("minimized");
-        this.innerHTML = "&#x2212;";
-      } else {
-        content.style.display = "none";
-        panel.classList.add("minimized");
-        this.innerHTML = "&#x25B2;";
-      }
-    }
-
-    document.getElementById("minimizeMenu").addEventListener("click", minimizeMenu);
-
-    function minimizeMenu2() {
-      var content = document.querySelector("#menuPanel2 .menu-content");
-      var panel = document.getElementById("menuPanel2");
-      var header = document.querySelector("#menuPanel2 .menu-header");
-      if (content.style.display === "none") {
-        content.style.display = "block";
-        panel.classList.remove("minimized");
-        this.innerHTML = "&#x2212;";
-      } else {
-        content.style.display = "none";
-        panel.classList.add("minimized");
-        this.innerHTML = "&#x25B2;";
-      }
-    }
-
-    document.getElementById("minimizeMenu2").addEventListener("click", minimizeMenu2);
     
       
   </script>

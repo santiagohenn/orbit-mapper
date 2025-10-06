@@ -171,10 +171,6 @@ function initCesiumRender() {
 
 function renderCesium() {
 
-    if (viewer.entities.getById("SAOCOM-DEFAULT") !== undefined) {
-        removeAllEntities();
-    }
-
     updateDates();
 
     // This causes a bug on android, see: https://github.com/CesiumGS/cesium/issues/7871
@@ -186,19 +182,16 @@ function renderCesium() {
         timestepInSeconds = 1;
     }
 
-    // default to SAOCOM :D
-    let satName = "SAOCOM-DEFAULT";
-    let tle1 = "1 46265U 20059A   23219.44152368  .00000647  00000-0  87861-4 0  9990";
-    let tle2 = "2 46265  97.8904  44.2657 0001383  88.6861 271.4511 14.82150595158748";
+    let satName, tle1, tle2;
 
     let tleArray = tleText.value.split('\n');
     let start = Cesium.JulianDate.fromIso8601(iso8601Start);
     let stop = Cesium.JulianDate.fromIso8601(iso8601End);
     let totalSeconds = Cesium.JulianDate.secondsDifference(stop, start);
 
-    if (totalSeconds > 604800) { // Replace with Math.min
-        totalSeconds = 604800;
-        console.log("Defaulting to 1 week");
+    totalSeconds = Math.min(totalSeconds, 604800);
+    if (totalSeconds === 604800) {
+        console.log("Warning: Defaulting to 1 week");
     }
 
     if (tleArray.length == 2) {
@@ -210,8 +203,14 @@ function renderCesium() {
         tle1 = tleArray[1];
         tle2 = tleArray[2];
     } else {
-        totalSeconds = 102 * 60;
-        console.log("TLE invalid or empty");
+        randomizeSatellite();
+        tleArray = tleText.value.split('\n');
+        tle1 = tleArray[1];
+        tle2 = tleArray[2];
+        satName = tleArray[0].substring(2, 5);
+        // TODO use the satellite's orbital period
+        totalSeconds = 120 * 60;
+        console.log("TLE invalid or empty. Randomizing a satellite.");
     }
 
     let satrec = satellite.twoline2satrec(tle1.trim(), tle2.trim());
@@ -291,7 +290,7 @@ function renderCesium() {
     }
 
     // Convert the ecefPosition to JSON
-    const jsonECI = JSON.stringify(eciPositions, null, 2);
+    // const jsonECI = JSON.stringify(eciPositions, null, 2);
     const jsonNorm = JSON.stringify(normalizedPositions, null, 2);
 
     // output the coordinates
@@ -508,6 +507,13 @@ function takeSnapshot() {
 function propagateAndPlot() {
     console.log("Propagating from TLE");
     timestepInSeconds = parseFloat(timestepInSecondsField.value);
+
+    // TODO: Put this on a button somewhere else
+    if (tleText.value === "") {
+        console.log("TLE is empty. Randomizing satellite.");
+        randomizeSatellite();
+    }
+
     renderCesium();
 }
 
@@ -566,6 +572,27 @@ propagateFromElements.addEventListener('click', function () {
     elements2TLE(timestamp, semiMajorAxis, eccentricity, inclination, rightAscension, argumentOfPerigee, meanAnomaly);
     propagateAndPlot();
 });
+
+function randomizeSatellite() {
+
+    const timestamp = new Date(iso8601Start).getTime();
+    const semiMajorAxis = Math.floor(Math.random() * (8000 - 6678)) + 6678; // km
+    const eccentricity = Math.random() * (0.01 - 0.0001) + 0.0001;
+    const inclination = Math.floor(Math.random() * (98 - 40)) + 40;
+    const rightAscension = Math.floor(Math.random() * 360);
+    const argumentOfPerigee = Math.floor(Math.random() * 360);
+    const meanAnomaly = Math.floor(Math.random() * 360);
+/*
+    document.getElementById('semiMajorAxis').value = semiMajorAxis.toFixed(3);
+    document.getElementById('eccentricity').value = eccentricity.toFixed(6);
+    document.getElementById('inclination').value = inclination.toFixed(3);
+    document.getElementById('rightAscension').value = rightAscension.toFixed(3);
+    document.getElementById('argumentOfPerigee').value = argumentOfPerigee.toFixed(3);
+    document.getElementById('anomaly').value = meanAnomaly.toFixed(3);
+*/
+    elements2TLE(timestamp, semiMajorAxis, eccentricity, inclination, rightAscension, argumentOfPerigee, meanAnomaly);
+
+}
 
 clearButton.addEventListener('click', function () {
     removeAllEntities();
@@ -695,13 +722,14 @@ function elements2TLE(timestamp, semiMajorAxis, eccentricity, inclination, right
 
 function randomName() {
 
-    const array1 = ["Messi", "Dibu", "Fake", "Alfajor", "Coffee", "Mate", "SAR", "Moria"];
+    const array1 = ["Messi", "Dibu", "Fake", "Alfajor", "Coffee", "Mate", "SAR", "Moria", "ISE", "Gulich","CBA"];
     const array2 = ["-SAT", " Sat", " X", " 1A", " 1B", " 2"];
 
     const randomIndex1 = Math.floor(Math.random() * array1.length);
     const randomIndex2 = Math.floor(Math.random() * array2.length);
+    const randomIndex3 = Math.floor(Math.random() * 99);
 
-    return array1[randomIndex1] + array2[randomIndex2];
+    return array1[randomIndex1] + array2[randomIndex2] + randomIndex3;
 }
 
 function formatValue(value, decimalPlaces) {

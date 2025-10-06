@@ -68,6 +68,46 @@
       
     </div>
   </div>
+
+  <!-- Second menu panel -->
+  <div id="menuPanel2" class="menu-panel menu-panel-2">
+    <div class="menu-header">
+      <span>Options</span>
+      <button id="minimizeMenu2" class="minimize-btn" title="Minimize">&#x2212;</button>
+    </div>
+    <div class="menu-content">
+      <!-- Custom styled checkboxes -->
+      <label class="checkbox-container">
+        <input type="checkbox" id="option1">
+        <span class="checkmark"></span>
+        <span class="checkbox-label">Show satellite orbits</span>
+      </label>
+      
+      <label class="checkbox-container">
+        <input type="checkbox" id="option2">
+        <span class="checkmark"></span>
+        <span class="checkbox-label">Display ground tracks</span>
+      </label>
+      
+      <label class="checkbox-container">
+        <input type="checkbox" id="option3">
+        <span class="checkmark"></span>
+        <span class="checkbox-label">Show access windows</span>
+      </label>
+      
+      <label class="checkbox-container">
+        <input type="checkbox" id="option4">
+        <span class="checkmark"></span>
+        <span class="checkbox-label">Enable real-time updates</span>
+      </label>
+      
+      <div class="input-row">
+        <button class="button-generic">Apply Settings</button>
+        <button class="button-generic">Reset</button>
+      </div>
+    </div>
+  </div>
+
   <div class="row">
     <div class="column right">
       <div id="toolbar"></div>
@@ -164,18 +204,33 @@
       var header = document.querySelector("#menuPanel .menu-header");
       if (content.style.display === "none") {
         content.style.display = "block";
-        //panel.style.width = "";
-        //header.style.width = "";
+        panel.classList.remove("minimized");
         this.innerHTML = "&#x2212;";
       } else {
         content.style.display = "none";
-        //panel.style.width = "20vw";
-        //header.style.width = "20vw";
+        panel.classList.add("minimized");
         this.innerHTML = "&#x25B2;";
       }
     }
 
     document.getElementById("minimizeMenu").addEventListener("click", minimizeMenu);
+
+    function minimizeMenu2() {
+      var content = document.querySelector("#menuPanel2 .menu-content");
+      var panel = document.getElementById("menuPanel2");
+      var header = document.querySelector("#menuPanel2 .menu-header");
+      if (content.style.display === "none") {
+        content.style.display = "block";
+        panel.classList.remove("minimized");
+        this.innerHTML = "&#x2212;";
+      } else {
+        content.style.display = "none";
+        panel.classList.add("minimized");
+        this.innerHTML = "&#x25B2;";
+      }
+    }
+
+    document.getElementById("minimizeMenu2").addEventListener("click", minimizeMenu2);
     
       
   </script>

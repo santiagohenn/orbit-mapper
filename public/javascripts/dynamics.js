@@ -531,11 +531,9 @@ async function propagateAndRender(tle, timestepInSeconds, iso8601Start, iso8601E
     satelliteIcons.push(satName + "_icon");
     satelliteLabels.push(satName + "_label");
 
-    
-
     addSatelliteIcon(satName, trajectory.eciPositionsOverTime);
     addSatelliteLabel(satName, trajectory.eciPositionsOverTime);
-    addSatellitePath(satName, trajectory.positionsToPlotECI, getSelectedColor());
+    addSatellitePath(satName, trajectory.eciPositions, getSelectedColor());
     addSatellitePoint(satName, trajectory.eciPositionsOverTime, getSelectedColor());
 
     let initialized = false;
@@ -559,8 +557,6 @@ async function propagateSGP4(tleLine1, tleLine2, start, totalSeconds, timestepIn
     let eciPositionsOverTime = new Cesium.SampledPositionProperty(Cesium.ReferenceFrame.INERTIAL);
     let eciPositions = [];
     let ecefPositions = [];
-    // let positionsToPlotECEF = [];
-    let positionsToPlotECI = [];
 
     console.log("Propagating for: " + totalSeconds + " seconds at " + timestepInSeconds + " second intervals.");
 
@@ -581,8 +577,6 @@ async function propagateSGP4(tleLine1, tleLine2, start, totalSeconds, timestepIn
             ecefPos.y * 1000,
             ecefPos.z * 1000);
 
-        // positionsToPlotECEF.push(ecefPosition);
-        positionsToPlotECI.push(eciPosition);
         ecefPositionsOverTime.addSample(timeStamp, ecefPosition);
         eciPositionsOverTime.addSample(timeStamp, eciPosition);
 
@@ -601,7 +595,7 @@ async function propagateSGP4(tleLine1, tleLine2, start, totalSeconds, timestepIn
 
     }
 
-    return { eciPositionsOverTime, ecefPositionsOverTime, eciPositions, ecefPositions, positionsToPlotECI };
+    return { eciPositionsOverTime, ecefPositionsOverTime, eciPositions, ecefPositions };
 
 }
 
@@ -660,6 +654,11 @@ function addSatellitePoint(satName, positionsOverTime, color = Cesium.Color.RED)
 }
 
 function addSatellitePath(satName, positionsOverTime, color, widthInPixels = 2) {
+
+    let positionsToPlot = positionsOverTime.map(timedPosition =>
+        new Cesium.Cartesian3(timedPosition.pos[0], timedPosition.pos[1], timedPosition.pos[2])
+    );
+
     viewer.entities.add({
         polyline: {
             positions: new Cesium.CallbackProperty(function (time, result) {
@@ -667,10 +666,10 @@ function addSatellitePath(satName, positionsOverTime, color, widthInPixels = 2) 
                 const icrfToFixed = Cesium.Transforms.computeIcrfToFixedMatrix(time);
                 if (!Cesium.defined(icrfToFixed)) {
                     // Fallback: just show ECI positions
-                    return positionsOverTime;
+                    return positionsToPlot;
                 }
                 // Transform each ECI position to ECEF for display
-                return positionsOverTime.map(function (eciPos) {
+                return positionsToPlot.map(function (eciPos) {
                     return Cesium.Matrix3.multiplyByVector(icrfToFixed, eciPos, new Cesium.Cartesian3());
                 });
             }, false),

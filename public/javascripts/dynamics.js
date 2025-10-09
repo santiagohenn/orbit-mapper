@@ -164,7 +164,7 @@ function initCesiumRender() {
 
         // Disable ICRF when zoomed in close (better for detailed navigation)
         // Enable ICRF when zoomed out (better for orbital mechanics view)
-        const icrfThreshold = 15000000; // ~15,000 km from Earth center
+        const icrfThreshold = 500000; // ~500 km from Earth center
 
         if (distance < icrfThreshold && icrfEnabled) {
             // Zoomed in - disable ICRF for smooth local navigation
@@ -180,7 +180,7 @@ function initCesiumRender() {
 
 }
 
-async function propagateAndRenderWalkingDelta(tle, timestepInSeconds, iso8601Start, iso8601End) {
+async function propagateAndRenderWalkingDelta(tle, timestepInSeconds, iso8601Start, iso8601End, plotOptions = { point: true, path: true, label: true }) {
 
     if (tle === "") {
         alert("TLE field is empty. Cannot propagate.");
@@ -235,13 +235,18 @@ async function propagateAndRenderWalkingDelta(tle, timestepInSeconds, iso8601Sta
 
     currentSat = satName; // TODO: Now it takes the last satellite populated, replace with combo box selection
     satelliteStack.push(satName);
-    satellitePaths.push(satName + "_path");
-    satelliteIcons.push(satName + "_icon");
-    satelliteLabels.push(satName + "_label");
 
-    addSatelliteLabel(satName, trajectory.eciSampledPositions, 10);
-    addSatellitePath(satName, trajectory.eciPositions, getSelectedColor(), 1);
-    addSatellitePoint(satName, trajectory.eciSampledPositions, getSelectedColor());
+    if (plotOptions.point) {
+        addSatellitePoint(satName, trajectory.eciSampledPositions, getSelectedColor());
+    }
+    if (plotOptions.path) {
+        satellitePaths.push(satName + "_path");
+        addSatellitePath(satName, trajectory.eciPositions, getSelectedColor(), 1);
+    }
+    if (plotOptions.label) {
+        satelliteLabels.push(satName + "_label");
+        addSatelliteLabel(satName, trajectory.eciSampledPositions, 10);
+    }
 
     let initialized = false;
 
@@ -350,8 +355,6 @@ async function propagateSGP4(tleLine1, tleLine2, start, totalSeconds, timestepIn
     let eciPositions = [];
     let ecefPositions = [];
 
-    console.log("Propagating for: " + totalSeconds + " seconds at " + timestepInSeconds + " second intervals.");
-
     for (let i = 0; i <= totalSeconds; i += timestepInSeconds) {
 
         const timeStamp = Cesium.JulianDate.addSeconds(start, i, new Cesium.JulianDate());
@@ -402,8 +405,8 @@ function updateViewerClock(start, totalSeconds) {
     viewer.clock.clockRange = Cesium.ClockRange.LOOP_STOP;
 }
 
-function outputCoordinatesToGUI(eciPositions, ecefPositions) { 
-    
+function outputCoordinatesToGUI(eciPositions, ecefPositions) {
+
     let csvRows = eciPositions.slice(1).map(obj =>
         [obj.time, ...obj.pos.map(num => num.toFixed(3))].join('\t')
     );
@@ -467,6 +470,8 @@ function addSatellitePath(satName, positionsOverTime, color, widthInPixels = 2) 
             }, false),
             width: widthInPixels,
             material: color,
+            arcType: Cesium.ArcType.GEODESIC,
+            granularity: Cesium.Math.toRadians(1.0),
         },
         billboard: undefined,
         id: satName + "_path",
@@ -814,7 +819,6 @@ computeAccess.addEventListener('click', function () {
 
     computeAccess.textContent = "Computing...";
     computeAccess.disabled = true;
-    console.log("API req: /api/access/" + uriReq);
 
     fetch("/api/access/" + uriReq)
         .then(response => {
@@ -976,7 +980,7 @@ async function populateWalkerDelta() {
     // Check if all required elements exist
     if (!semiMajorAxisElement || !inclinationElement || !nOfPlanesElement || !nOfSatsElement || !phaseOffsetElement) {
         console.error("One or more required input elements not found in the DOM");
-        alert("Error: Missing required input fields for Walker Delta constellation.");
+        alert("Error: Missing required input fields for Walker Delta constellation. Need: semi-major axis, inclination, number of planes, number of satellites, phase offset.");
         return;
     }
 
@@ -989,14 +993,6 @@ async function populateWalkerDelta() {
     const nOfPlanesInput = nOfPlanesElement.value.trim();
     const nOfSatsInput = nOfSatsElement.value.trim();
     const phaseOffsetInput = phaseOffsetElement.value.trim();
-
-    // Check for empty fields
-    if (!semiMajorAxisInput || !inclinationInput || !rightAscensionInput ||
-        !argumentOfPerigeeInput || !meanAnomalyInput || !nOfPlanesInput || !nOfSatsInput || !phaseOffsetInput) {
-        console.error("One or more required fields are empty");
-        alert("Error: Please fill in all orbital element fields and constellation parameters.");
-        return;
-    }
 
     // Parse and validate numeric values
     let semiMajorAxis = parseFloat(semiMajorAxisInput);
@@ -1027,30 +1023,46 @@ async function populateWalkerDelta() {
         while (rightAscension >= 360) {
             rightAscension -= 360;
         }
+    } else if (isNaN(rightAscension)) {
+        rightAscension = 0;
     }
 
-    if (argumentOfPerigee < 0 || argumentOfPerigee >= 360 || isNaN(argumentOfPerigee)) {
-        console.error("Invalid argument of perigee: " + argumentOfPerigee);
-        alert("Error: Argument of perigee must be between 0 and 360 degrees.");
-        return;
+    if (argumentOfPerigee < 0 || argumentOfPerigee >= 360) {
+        while (argumentOfPerigee < 0) {
+            argumentOfPerigee += 360;
+        }
+        while (argumentOfPerigee >= 360) {
+            argumentOfPerigee -= 360;
+        }
+    } else if (isNaN(argumentOfPerigee)) {
+        argumentOfPerigee = 0;
     }
 
     if (meanAnomaly < 0 || meanAnomaly >= 360) {
-        console.error("Invalid mean anomaly: " + meanAnomaly);
-        alert("Error: Mean anomaly must be between 0 and 360 degrees.");
-        return;
+        while (meanAnomaly < 0) {
+            meanAnomaly += 360;
+        }
+        while (meanAnomaly >= 360) {
+            meanAnomaly -= 360;
+        }
+    } else if (isNaN(meanAnomaly)) {
+        meanAnomaly = 0;
+    }
+
+    if (isNaN(phaseOffset)) {
+        phaseOffset = 0;
     }
 
     // Validate constellation parameters
     if (nOfPlanes < 1 || nOfPlanes > 100) {
         console.error("Invalid number of planes: " + nOfPlanes);
-        alert("Error: Number of planes must be between 1 and 100.");
+        alert("Error: Number of planes must be between 1 and 100. Don't break my server plz.");
         return;
     }
 
     if (nOfSats < 1 || nOfSats > 10000) {
         console.error("Invalid number of satellites: " + nOfSats);
-        alert("Error: Total number of satellites must be between 1 and 10,000.");
+        alert("Error: Total number of satellites must be between 1 and 10,000. Don't break my server plz.");
         return;
     }
 
@@ -1068,10 +1080,7 @@ async function populateWalkerDelta() {
         return;
     }
 
-    console.log("Generating Walker Delta constellation: " + nOfSats + "/" + nOfPlanes + "/" + phaseOffset);
-
     let orbitalPeriodMinutes = getOrbitalPeriodMinutes(semiMajorAxis);
-    console.log("Orbital period (minutes): " + orbitalPeriodMinutes.toFixed(2));
 
     // Calculate phasing within each plane (satellites evenly spaced)
     let phasing = 360 / satsPerPlane;
@@ -1079,27 +1088,32 @@ async function populateWalkerDelta() {
     // Calculate Walker Delta phase offset: Δθ = f × 360 / t
     // This is the phase difference between equivalent satellites in adjacent planes
     let walkerPhaseOffset = (phaseOffset * 360) / nOfSats;
-    console.log("Walker Delta phase offset per plane: " + walkerPhaseOffset.toFixed(2) + " degrees");
 
     // Set consistent time window for entire constellation
     const today = new Date();
     today.setMilliseconds(0);
     today.setSeconds(0);
     picker.setStartDate(today);
-    picker.setEndDate(shiftDateByMinutes(today, Math.ceil(orbitalPeriodMinutes)));
+    picker.setEndDate(shiftDateByMinutes(today, Math.ceil(orbitalPeriodMinutes) * 1.1)); // 10% margin over one orbit
     await updateGlobalDates();
 
     // Lock down the time window before any propagation
     const constellationStartTime = picker.getStartDate().format("YYYY-MM-DDTHH:mm:ss.sssZ");
     const constellationEndTime = picker.getEndDate().format("YYYY-MM-DDTHH:mm:ss.sssZ");
 
-    console.log("Constellation propagation window (UTC): " + constellationStartTime + " to " + constellationEndTime);
     tleText.value = "";
 
     const timestamp = new Date(constellationStartTime).getTime();
 
     // Generate all TLEs first to avoid clock interference
     const satelliteTLEs = [];
+
+    let showLabels = true;
+
+    if (nOfSats >= 500) {
+        timestepInSeconds = 60; // 1 minute for large constellations
+        showLabels = false;
+    }
 
     for (let plane = 0; plane < nOfPlanes; plane++) {
         // RAAN: evenly distribute planes around the equator
@@ -1109,32 +1123,35 @@ async function populateWalkerDelta() {
         // Each plane is offset by plane_index × walkerPhaseOffset in mean anomaly
         let planePhaseOffset = (plane * walkerPhaseOffset) % 360;
 
-        console.log(`[WALKER] Plane ${plane}: RAAN=${raan.toFixed(2)}°, PhaseOffset=${planePhaseOffset.toFixed(2)}°`);
-
         for (let sat = 0; sat < satsPerPlane; sat++) {
             // Mean anomaly: base + satellite spacing within plane + Walker Delta phase offset
             let anomaly = (meanAnomaly + sat * phasing + planePhaseOffset) % 360;
             const satName = `P${plane}_S${sat}`;
             let tle = elements2TLE(satName, timestamp, semiMajorAxis, 0.0001, inclination, raan, argumentOfPerigee, anomaly);
 
+            let plotOptions = {
+                point: true,
+                path: false,
+                label: showLabels
+            };
+
+            if (sat === 0) {
+                plotOptions.path = true; // Only show path for first satellite in each plane
+            }
+
             satelliteTLEs.push({
                 name: satName,
                 tle: tle,
                 plane: plane,
                 sat: sat,
-                anomaly: anomaly
+                anomaly: anomaly,
+                plotOptions: plotOptions
             });
         }
     }
 
     for (let satData of satelliteTLEs) {
-
-        console.log(`[CONSTELLATION] Processing ${satData.name}...`);
-
-        // propagateAndRender(tle, timestepInSeconds, iso8601Start, iso8601End) 
-        await propagateAndRenderWalkingDelta(satData.tle, timestepInSeconds, iso8601Start, iso8601End);
-
-        console.log(`[CONSTELLATION] Added ${satData.name} (Plane ${satData.plane}, Sat ${satData.sat}, MA ${satData.anomaly.toFixed(1)}°)`);
+        await propagateAndRenderWalkingDelta(satData.tle, timestepInSeconds, iso8601Start, iso8601End, satData.plotOptions);
     }
 
 }

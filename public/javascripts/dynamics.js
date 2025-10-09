@@ -1,11 +1,9 @@
 let group, staticObjects, camera, renderer, pointsMaterial;
 
 const cesiumContainer = document.getElementById('cesiumContainer');
-const currentSatelliteCoordinates = document.getElementById('currentSatelliteCoordinates');
 const propagateFromTLE = document.getElementById('propagateFromTLE');
 const propagateFromElements = document.getElementById('propagateFromElements');
 const clearButton = document.getElementById('clearButton');
-const eqButton = document.getElementById('eqButton');
 const satCoordinatesJSON = document.getElementById('satCoordinatesJSON');
 const tleText = document.getElementById('tleTextArea');
 const eciCoordinates = document.getElementById('eciCoordinates');
@@ -19,9 +17,22 @@ const computeAccess = document.getElementById('computeAccess');
 const accessTextArea = document.getElementById('accessTextArea');
 const colorTextArea = document.getElementById('color-picker');
 
+const showSunlightCheckbox = document.getElementById('showSunlight');
+const showEQPlaneCheckbox = document.getElementById('showEQPlane');
+const showLabelsCheckbox = document.getElementById('showLabels');
+const showIconsCheckbox = document.getElementById('showIcons');
+
+const takeSnapshotButton = document.getElementById('takeSnapshot');
+const populateWalkerDeltaButton = document.getElementById('populateWalkerDelta');
+
 let satelliteStack = [];
+let satellitePaths = [];
+let satelliteIcons = [];
+let satelliteLabels = [];
+let currentSat = "";
 
 import { buildLine1, buildLine2 } from './tle.js';
+import { randomName, addSecondsToIso8601, getOrbitalPeriodMinutes } from './propagatorUtils.js';
 
 const picker = new easepick.create({
     element: "#datepicker",
@@ -40,73 +51,328 @@ const picker = new easepick.create({
     ],
     setup(picker) {
         picker.on('select', (e) => {
-            updateDates();
+            updateGlobalDates();
             console.log("Date changed");
         });
     }
 });
 
+// DEBUG INSTRUMENTATION - Add these functions for temporary debugging
+function addWalkerDebugConsole() {
+    console.log("=== WALKER DEBUG INSTRUMENTATION ACTIVE ===");
+
+    // Monitor clock changes
+    const originalSetClock = function (startTime, stopTime, currentTime) {
+        console.log(`[CLOCK] Setting: start=${startTime}, stop=${stopTime}, current=${currentTime}`);
+    };
+
+    // Monitor entity creation
+    let entityCount = 0;
+    const originalAddEntity = viewer.entities.add.bind(viewer.entities);
+    viewer.entities.add = function (entity) {
+        entityCount++;
+        console.log(`[ENTITY] Added #${entityCount}: ${entity.id || 'unnamed'} (type: ${entity.billboard ? 'billboard' : entity.point ? 'point' : entity.label ? 'label' : entity.polyline ? 'polyline' : 'other'})`);
+        return originalAddEntity(entity);
+    };
+
+    // Monitor position property creation and sampling
+    setInterval(() => {
+        const currentTime = viewer.clock.currentTime;
+        const entities = viewer.entities.values;
+        let activeCount = 0;
+        let frozenCount = 0;
+        let precisionIssues = [];
+
+        for (let entity of entities) {
+            if (entity.position && typeof entity.position.getValue === 'function') {
+                const pos = entity.position.getValue(currentTime);
+                if (pos) {
+                    activeCount++;
+                } else {
+                    frozenCount++;
+
+                    // ENHANCED PRECISION DEBUGGING: Try to find nearby valid times
+                    let nearestValidTime = null;
+                    let minTimeDiff = Infinity;
+
+                    // Check if this is a SampledPositionProperty with timing issues
+                    if (entity.position._property && entity.position._property._times) {
+                        const sampleTimes = entity.position._property._times;
+                        for (let sampleTime of sampleTimes) {
+                            const timeDiff = Math.abs(Cesium.JulianDate.secondsDifference(currentTime, sampleTime));
+                            if (timeDiff < minTimeDiff) {
+                                minTimeDiff = timeDiff;
+                                nearestValidTime = sampleTime;
+                            }
+                        }
+                    }
+
+                    precisionIssues.push({
+                        entityId: entity.id,
+                        currentTimeIso: Cesium.JulianDate.toIso8601(currentTime),
+                        nearestSampleDiff: minTimeDiff,
+                        clockStartDiff: Cesium.JulianDate.secondsDifference(currentTime, viewer.clock.startTime),
+                        clockStopDiff: Cesium.JulianDate.secondsDifference(viewer.clock.stopTime, currentTime)
+                    });
+
+                    if (precisionIssues.length <= 3) { // Limit spam
+                        console.warn(`[FROZEN] Entity ${entity.id} has no position at current time`);
+                        console.warn(`[PRECISION] Current: ${Cesium.JulianDate.toIso8601(currentTime)}`);
+                        console.warn(`[PRECISION] Nearest sample: ${minTimeDiff.toFixed(6)}s away`);
+                        console.warn(`[PRECISION] Clock range: ${Cesium.JulianDate.secondsDifference(currentTime, viewer.clock.startTime).toFixed(3)}s from start`);
+                    }
+                }
+            }
+        }
+
+        if (frozenCount > 0) {
+            console.log(`[STATUS] Active: ${activeCount}, Frozen: ${frozenCount}, Clock: ${Cesium.JulianDate.toIso8601(currentTime)}`);
+
+            // Suggest precision fixes if consistent patterns found
+            const avgTimeDiff = precisionIssues.reduce((sum, issue) => sum + issue.nearestSampleDiff, 0) / precisionIssues.length;
+            if (avgTimeDiff < 1.0 && avgTimeDiff > 0.001) {
+                console.log(`[PRECISION] Suggestion: Average sample time diff is ${avgTimeDiff.toFixed(6)}s - this indicates floating point precision issues`);
+            }
+        }
+    }, 5000);
+}
+
+// PRECISION TESTING UTILITIES
+function testTimePrecision() {
+    console.log("=== TESTING TIME PRECISION ===");
+
+    const now = new Date();
+    now.setMilliseconds(0); // Remove milliseconds
+
+    const julianNow = Cesium.JulianDate.fromDate(now);
+    const iso8601 = Cesium.JulianDate.toIso8601(julianNow);
+    const parsedBack = Cesium.JulianDate.fromIso8601(iso8601);
+
+    const diff = Cesium.JulianDate.secondsDifference(parsedBack, julianNow);
+
+    console.log("Original Date:", now.toISOString());
+    console.log("Julian Date:", julianNow);
+    console.log("ISO8601:", iso8601);
+    console.log("Parsed Back:", parsedBack);
+    console.log("Difference (seconds):", diff);
+
+    if (Math.abs(diff) < 0.000001) {
+        console.log("✅ Time precision is good");
+    } else {
+        console.log("❌ Time precision issue detected");
+    }
+
+    // Test addSeconds precision
+    const future = Cesium.JulianDate.addSeconds(julianNow, 60, new Cesium.JulianDate());
+    const diff60 = Cesium.JulianDate.secondsDifference(future, julianNow);
+    console.log("60-second addition test:", diff60 === 60 ? "✅ Exact" : `❌ Off by ${Math.abs(diff60 - 60)} seconds`);
+
+    return Math.abs(diff) < 0.000001;
+}
+
+function diagnosePrecisionIssues() {
+    console.log("=== DIAGNOSING PRECISION ISSUES ===");
+
+    const currentTime = viewer.clock.currentTime;
+    const startTime = viewer.clock.startTime;
+    const stopTime = viewer.clock.stopTime;
+
+    console.log("Clock Start:", Cesium.JulianDate.toIso8601(startTime));
+    console.log("Clock Current:", Cesium.JulianDate.toIso8601(currentTime));
+    console.log("Clock Stop:", Cesium.JulianDate.toIso8601(stopTime));
+
+    const entities = viewer.entities.values;
+    let sampledProperties = 0;
+    let workingProperties = 0;
+    let brokenProperties = 0;
+
+    for (let entity of entities) {
+        if (entity.position && entity.position._property && entity.position._property._times) {
+            sampledProperties++;
+            const pos = entity.position.getValue(currentTime);
+            if (pos) {
+                workingProperties++;
+            } else {
+                brokenProperties++;
+                const times = entity.position._property._times;
+
+                console.log(`[BROKEN] ${entity.id}:`);
+                console.log(`  Sample count: ${times.length}`);
+                if (times.length > 0) {
+                    console.log(`  First sample: ${Cesium.JulianDate.toIso8601(times[0])}`);
+                    console.log(`  Last sample: ${Cesium.JulianDate.toIso8601(times[times.length - 1])}`);
+
+                    // Find closest sample
+                    let closestTime = times[0];
+                    let minDiff = Math.abs(Cesium.JulianDate.secondsDifference(currentTime, times[0]));
+
+                    for (let sampleTime of times) {
+                        const diff = Math.abs(Cesium.JulianDate.secondsDifference(currentTime, sampleTime));
+                        if (diff < minDiff) {
+                            minDiff = diff;
+                            closestTime = sampleTime;
+                        }
+                    }
+
+                    console.log(`  Closest sample: ${Cesium.JulianDate.toIso8601(closestTime)} (${minDiff.toFixed(6)}s away)`);
+                }
+            }
+        }
+    }
+
+    console.log(`Summary: ${sampledProperties} sampled properties, ${workingProperties} working, ${brokenProperties} broken`);
+
+    if (brokenProperties > 0) {
+        console.log("🔧 Recommendation: The precision fixes in propagateWalkerConstellation should resolve these issues");
+    }
+}
+
+// MINIMAL TEST HARNESS - Copy-paste these functions for testing
+function testWalkerConstellation() {
+    console.log("=== TESTING WALKER CONSTELLATION ===");
+
+    // Test time precision first
+    testTimePrecision();
+
+    // Set test parameters (6 satellites, 3 planes, phase factor 1)
+    document.getElementById('semiMajorAxis').value = '7000';    // km
+    document.getElementById('inclination').value = '53';       // degrees
+    document.getElementById('rightAscension').value = '0';     // degrees
+    document.getElementById('argumentOfPerigee').value = '0';  // degrees
+    document.getElementById('anomaly').value = '0';            // degrees
+    document.getElementById('nOfPlanes').value = '3';          // planes
+    document.getElementById('nOfSats').value = '6';            // total satellites
+    document.getElementById('phaseOffset').value = '1';        // phase factor
+    document.getElementById('timestepInSeconds').value = '60'; // 1 minute steps
+
+    console.log("Test parameters set. Expected result:");
+    console.log("- 6 satellites total (2 per plane)");
+    console.log("- 3 orbital planes separated by 120° in RAAN");
+    console.log("- Phase offset: f=1 -> Δθ = 1×360/6 = 60° between equivalent satellites in adjacent planes");
+    console.log("- Satellites should move continuously in their orbits");
+
+    // Run the constellation
+    populateWalkerDelta().then(() => {
+        console.log("Test constellation created. Monitor the satellites for continuous motion.");
+
+        // Run precision diagnostics immediately
+        setTimeout(() => {
+            diagnosePrecisionIssues();
+        }, 2000);
+
+        // Verify animation after 10 seconds
+        setTimeout(() => {
+            const entities = viewer.entities.values;
+            const iconEntities = entities.filter(e => e.id && e.id.includes('_icon'));
+            console.log(`Created ${iconEntities.length} satellite icons`);
+
+            if (iconEntities.length === 6) {
+                console.log("✅ Correct number of satellites created");
+            } else {
+                console.error("❌ Expected 6 satellites, got " + iconEntities.length);
+            }
+
+            // Check if satellites are moving
+            const currentTime = viewer.clock.currentTime;
+            const testTime = Cesium.JulianDate.addSeconds(currentTime, 300, new Cesium.JulianDate()); // +5 minutes
+
+            let movingCount = 0;
+            let frozenCount = 0;
+            for (let entity of iconEntities) {
+                const pos1 = entity.position.getValue(currentTime);
+                const pos2 = entity.position.getValue(testTime);
+
+                if (pos1 && pos2) {
+                    const distance = Cesium.Cartesian3.distance(pos1, pos2);
+                    if (distance > 1000) { // More than 1km difference
+                        movingCount++;
+                        console.log(`${entity.id}: ✅ Moving ${(distance / 1000).toFixed(1)}km over 5min`);
+                    } else {
+                        frozenCount++;
+                        console.log(`${entity.id}: ❌ Static (${(distance / 1000).toFixed(1)}km over 5min)`);
+                    }
+                } else {
+                    frozenCount++;
+                    console.log(`${entity.id}: ❌ No position data (pos1=${!!pos1}, pos2=${!!pos2})`);
+                }
+            }
+
+            if (movingCount === iconEntities.length) {
+                console.log("✅ All satellites are properly moving");
+            } else {
+                console.error(`❌ Only ${movingCount}/${iconEntities.length} satellites are moving, ${frozenCount} are frozen`);
+                console.log("🔧 Running additional diagnostics...");
+                diagnosePrecisionIssues();
+            }
+
+        }, 10000);
+    }).catch(error => {
+        console.error("Test failed:", error);
+    });
+}
+
+function testSingleSatellite() {
+    console.log("=== TESTING SINGLE SATELLITE (BASELINE) ===");
+
+    // Test with existing single satellite functionality
+    document.getElementById('semiMajorAxis').value = '7000';
+    document.getElementById('inclination').value = '53';
+    document.getElementById('rightAscension').value = '0';
+    document.getElementById('argumentOfPerigee').value = '0';
+    document.getElementById('anomaly').value = '0';
+    document.getElementById('timestepInSeconds').value = '60';
+
+    const testTle = elements2TLE("TEST_SAT", Date.now(), 7000, 0.0001, 53, 0, 0, 0);
+    const startTime = picker.getStartDate().format("YYYY-MM-DDTHH:mm:ss.sssZ");
+    const endTime = picker.getEndDate().format("YYYY-MM-DDTHH:mm:ss.sssZ");
+
+    propagateAndRender(testTle, 60, startTime, endTime).then(() => {
+        console.log("Single satellite test completed. It should be moving normally.");
+    });
+}
+
+function resetTestEnvironment() {
+    removeAllEntities();
+    console.log("Test environment reset.");
+}
+
+// To run tests, uncomment these lines:
+// testSingleSatellite();  // Test baseline first
+// resetTestEnvironment(); // Clear 
+// testWalkerConstellation(); // Test constellation
+
 let viewer, scene, time;
 let timestepInSeconds, iso8601Start, iso8601End;
+let icrfEnabled = true; // Track ICRF state
 
 document.addEventListener('DOMContentLoaded', function () {
     initCesiumRender();
     setDefaultDates();
-    // setDefaultTLE();
-    renderCesium();
+    const randomTle = randomizeSatellite();
+    propagateAndRender(randomTle, 60.0, iso8601Start, iso8601End);
+
+    // Debugging:
+    // addWalkerDebugConsole();
+    // testWalkerConstellation();
+
 });
 
-function setDefaultTLE() {
-    const url = 'https://celestrak.org/NORAD/elements/gp.php?CATNR=46265&FORMAT=TLE';
-    fetch(url)
-        .then(response => {
-            if (!response.ok) {
-                throw new Error('Unable to fetch TLE');
-            }
-            return response.text();
-        })
-        .then(data => {
-            tleText.value = data;
-        })
-        .catch(error => {
-            console.error('There was a problem with the fetch operation: ', error);
-        });
-}
-
-function setDefaultDates() {
-    const DateTime = easepick.DateTime;
-    const today = new DateTime();
-    const todayPlus = today.clone().add(1, 'day');
+async function setDefaultDates() {
+    const today = new Date();
+    today.setMilliseconds(0);
+    today.setSeconds(0);
     picker.setStartDate(today);
-    picker.setEndDate(todayPlus);
-    updateDates();
+    picker.setEndDate(shiftDateByMinutes(today, 120));
+    await updateGlobalDates();
 }
 
-function updateDates() {
+async function updateGlobalDates() {
     iso8601Start = picker.getStartDate().format("YYYY-MM-DDTHH:mm:ss.sssZ");
     iso8601End = picker.getEndDate().format("YYYY-MM-DDTHH:mm:ss.sssZ");
 }
 
-function addEQPlane() {
-
-    const eqWall = viewer.entities.add({
-        name: "Celestial EQ",
-        id: "eqCelestial",
-        show: false,
-        wall: {
-            positions: Cesium.Cartesian3.fromDegreesArrayHeights([
-                -180.0, 0.0, 0.0,
-                -90.0, 0.0, 0.0,
-                0.0, 0.0, 0.0,
-                90.0, 0.0, 0.0,
-                180.0, 0.0, 0.0,
-            ]),
-            minimumHeights: [6000000.0, 6000000.0, 6000000.0, 6000000.0, 6000000.0],
-            material: Cesium.Color.YELLOW.withAlpha(0.3),
-        },
-    });
-
-
+function shiftDateByMinutes(date, minutes) {
+    return new Date(date.getTime() + minutes * 60000);
 }
 
 function initCesiumRender() {
@@ -135,56 +401,85 @@ function initCesiumRender() {
         homeButton: true,
         infoBox: false,
         navigationHelpButton: false,
-        sceneModePicker: false
+        sceneModePicker: false,
+        selectionIndicator: false,
+        infoBox: false,
+        scene3DOnly: true,
     });
 
-    scene = viewer.scene;
-    time = viewer.time;
-    scene.screenSpaceCameraController.minimumZoomDistance = 6400000; // meters
-    scene.screenSpaceCameraController.minimumTrackBallHeight = 7000000;
-    // Try to lower camera control sensitivity
-    viewer.scene.screenSpaceCameraController._maximumRotateRate = 0.2;
-    viewer.scene.screenSpaceCameraController._minimumRotateRate = 0.05;
+    const scene = viewer.scene;
+    const controller = scene.screenSpaceCameraController;
 
-    /*  
-    scene.screenSpaceCameraController.rotateFactor = 0.01;    // Default is 1.0
-    scene.screenSpaceCameraController.translateFactor = 0.01; // Default is 1.0
-    scene.screenSpaceCameraController.zoomFactor = 0.01;      // Default is 1.0
-    scene.screenSpaceCameraController.minimumTrackBallHeight = 7000000;
-    scene.screenSpaceCameraController.minimumPickingTerrainHeight = 7000000;
-    scene.screenSpaceCameraController.minimumPickingTerrainHeight = 7000000;
+    // Minimum zoom distance to prevent going underground
+    controller.minimumZoomDistance = 50000.0; // km
+    controller.maximumZoomDistance = 5.0e8;   // ~500,000 km
 
+    // Rotation controls (slower = smoother)
+    controller._maximumRotateRate = 0.2;  // default 1.77
+    controller._minimumRotateRate = 0.01; // default 0.02
 
-    // const scene = viewer.scene;
+    // Zoom controls
+    controller.zoomFactor = 1.0;         // default 5.0; smaller = smoother zoom steps
+    controller.wheelZoomFactor = 0.005;   // fine control on mouse wheel
 
-    const globe = scene.globe;
-    const baseLayer = scene.imageryLayers.get(0);
+    // Translation (panning)
+    controller.translateFactor = 1.0;    // leave close to default for stability
 
-    scene.screenSpaceCameraController.enableCollisionDetection = false;
-    globe.translucency.enabled = true;
-    globe.undergroundColor = Cesium.Color.BLACK;
-    globe.translucency.frontFaceAlpha = 1;
-    */
-    addEQPlane();
+    // Inertia (smooth continuation)
+    controller.inertiaSpin = 0.95;       // default 0.9
+    controller.inertiaTranslate = 0.95;  // default 0.9
+    controller.inertiaZoom = 0.85;       // default 0.8
+
+    // Globe detail level: smaller error = sharper but heavier
+    scene.globe.maximumScreenSpaceError = 2; // default 2; 1 = sharper but heavier
+
+    // Optional: better lighting feel
+    scene.globe.enableLighting = true;
+
+    const camera = new Cesium.Camera(scene);
+    camera.defaultZoomAmount = 50000;
+
+    // Add camera distance monitoring for ICRF control
+    viewer.scene.camera.changed.addEventListener(function () {
+        const camera = viewer.scene.camera;
+        const cameraPos = camera.positionWC;
+        const globeCenter = Cesium.Cartesian3.ZERO;
+        const distance = Cesium.Cartesian3.distance(cameraPos, globeCenter);
+
+        // Disable ICRF when zoomed in close (better for detailed navigation)
+        // Enable ICRF when zoomed out (better for orbital mechanics view)
+        const icrfThreshold = 15000000; // ~15,000 km from Earth center
+
+        if (distance < icrfThreshold && icrfEnabled) {
+            // Zoomed in - disable ICRF for smooth local navigation
+            icrfEnabled = false;
+            viewer.camera.lookAtTransform(Cesium.Matrix4.IDENTITY);
+            console.log("ICRF disabled - close navigation mode");
+        } else if (distance >= icrfThreshold && !icrfEnabled) {
+            // Zoomed out - re-enable ICRF for orbital view
+            icrfEnabled = true;
+            console.log("ICRF enabled - orbital view mode");
+        }
+    });
 
 }
 
-function renderCesium() {
+async function propagateAndRender(tle, timestepInSeconds, iso8601Start, iso8601End) {
 
-    updateDates();
-
-    // This causes a bug on android, see: https://github.com/CesiumGS/cesium/issues/7871
-    viewer.scene.globe.enableLighting = true;
+    if (tle === "") {
+        alert("TLE field is empty. Cannot propagate.");
+        return;
+    }
 
     if (timestepInSeconds === null || timestepInSeconds === undefined) {
+        console.log("Timestep is not defined. Using default value of 30 seconds.");
         timestepInSeconds = 30;
     } else if (timestepInSeconds < 1) {
+        console.log("Timestep cannot be less than 1 second. Defaulting to 1 second.");
         timestepInSeconds = 1;
     }
 
-    let satName, tle1, tle2;
-
-    let tleArray = tleText.value.split('\n');
+    let tleArray = tle.split('\n');
     let start = Cesium.JulianDate.fromIso8601(iso8601Start);
     let stop = Cesium.JulianDate.fromIso8601(iso8601End);
     let totalSeconds = Cesium.JulianDate.secondsDifference(stop, start);
@@ -193,6 +488,12 @@ function renderCesium() {
     if (totalSeconds === 604800) {
         console.log("Warning: Defaulting to 1 week");
     }
+    if (totalSeconds <= 0) {
+        console.log("Timespan must be greater than zero: " + totalSeconds);
+        return;
+    }
+
+    let satName, tle1, tle2;
 
     if (tleArray.length == 2) {
         tle1 = tleArray[0];
@@ -203,55 +504,75 @@ function renderCesium() {
         tle1 = tleArray[1];
         tle2 = tleArray[2];
     } else {
-        randomizeSatellite();
-        tleArray = tleText.value.split('\n');
+        tleArray = randomizeSatellite().split('\n');
         tle1 = tleArray[1];
         tle2 = tleArray[2];
-        satName = tleArray[0].substring(2, 5);
+        satName = tleArray[0];
         // TODO use the satellite's orbital period
         totalSeconds = 120 * 60;
-        console.log("TLE invalid or empty. Randomizing a satellite.");
+        console.log("TLE invalid.");
     }
 
-    let satrec = satellite.twoline2satrec(tle1.trim(), tle2.trim());
+    updateViewerClock(start, totalSeconds);
 
-    if (totalSeconds <= 0) {
-        console.log("Timespan must be greater than zero: " + totalSeconds);
+    let trajectory = await propagateSGP4(tle1, tle2, start, totalSeconds, timestepInSeconds);
+
+    outputCoordinatesToGUI(trajectory.eciPositions, trajectory.ecefPositions);
+
+    // TODO: Fix present satellite test
+    if (viewer.entities.getById(satName) !== undefined) {
+        console.log("The scenario already contains this satellite");
         return;
     }
 
-    console.log("start: " + start);
-    console.log("end: " + stop);
-    console.log("secondsDifference: " + totalSeconds);
+    currentSat = satName; // TODO: Now it takes the last satellite populated, replace with combo box selection
+    satelliteStack.push(satName);
+    satellitePaths.push(satName + "_path");
+    satelliteIcons.push(satName + "_icon");
+    satelliteLabels.push(satName + "_label");
 
-    //const start = Cesium.JulianDate.fromDate(new Date());
-    stop = Cesium.JulianDate.addSeconds(start, totalSeconds, new Cesium.JulianDate());
-    viewer.clock.startTime = start.clone();
-    viewer.clock.stopTime = stop.clone();
-    viewer.clock.currentTime = start.clone();
-    viewer.timeline.zoomTo(start, stop);
-    viewer.clock.multiplier = 30;
-    viewer.clock.clockRange = Cesium.ClockRange.LOOP_STOP;
+    
+
+    addSatelliteIcon(satName, trajectory.eciPositionsOverTime);
+    addSatelliteLabel(satName, trajectory.eciPositionsOverTime);
+    addSatellitePath(satName, trajectory.positionsToPlotECI, getSelectedColor());
+    addSatellitePoint(satName, trajectory.eciPositionsOverTime, getSelectedColor());
+
+    let initialized = false;
+
+    viewer.scene.globe.tileLoadProgressEvent.addEventListener(() => {
+        if (!initialized && viewer.scene.globe.tilesLoaded === true) {
+            viewer.clock.shouldAnimate = true;
+            initialized = true;
+            viewer.scene.camera.zoomOut(7000000);
+        }
+    });
+
+    viewInICRF();
+}
+
+async function propagateSGP4(tleLine1, tleLine2, start, totalSeconds, timestepInSeconds) {
+
+    let satrec = satellite.twoline2satrec(tleLine1.trim(), tleLine2.trim());
 
     let ecefPositionsOverTime = new Cesium.SampledPositionProperty(Cesium.ReferenceFrame.FIXED);
     let eciPositionsOverTime = new Cesium.SampledPositionProperty(Cesium.ReferenceFrame.INERTIAL);
-
     let eciPositions = [];
     let ecefPositions = [];
-    let positionsToPlotECEF = [];
+    // let positionsToPlotECEF = [];
     let positionsToPlotECI = [];
-    let normalizedPositions = [];
+
+    console.log("Propagating for: " + totalSeconds + " seconds at " + timestepInSeconds + " second intervals.");
 
     for (let i = 0; i <= totalSeconds; i += timestepInSeconds) {
 
         const timeStamp = Cesium.JulianDate.addSeconds(start, i, new Cesium.JulianDate());
         const jsDate = Cesium.JulianDate.toDate(timeStamp);
-        const sgp4ECIPos = satellite.propagate(satrec, jsDate);
+        const sgp4ECIPos = await satellite.propagate(satrec, jsDate);
         const gmst = satellite.gstime(jsDate);
         const geodeticPos = satellite.eciToGeodetic(sgp4ECIPos.position, gmst);
         const ecefPos = satellite.eciToEcf(sgp4ECIPos.position, gmst);
 
-        const sspPos = Cesium.Cartesian3.fromRadians(geodeticPos.longitude, geodeticPos.latitude, geodeticPos.height * 1000);
         const eciPosition = Cesium.Cartesian3.fromElements(sgp4ECIPos.position.x * 1000,
             sgp4ECIPos.position.y * 1000,
             sgp4ECIPos.position.z * 1000);
@@ -260,7 +581,7 @@ function renderCesium() {
             ecefPos.y * 1000,
             ecefPos.z * 1000);
 
-        positionsToPlotECEF.push(ecefPosition);
+        // positionsToPlotECEF.push(ecefPosition);
         positionsToPlotECI.push(eciPosition);
         ecefPositionsOverTime.addSample(timeStamp, ecefPosition);
         eciPositionsOverTime.addSample(timeStamp, eciPosition);
@@ -278,22 +599,25 @@ function renderCesium() {
         };
         ecefPositions.push(jsonPositionECEF);
 
-        // Normalized position
-        // let positionNormalized = new Cesium.Cartesian3;
-        // Cesium.Cartesian3.normalize(eciPosition, positionNormalized);
-        const jsonPosition = {
-            time: jsDate,
-            position: [eciPosition.x, eciPosition.y, eciPosition.z]
-        };
-        normalizedPositions.push(jsonPosition);
-
     }
 
-    // Convert the ecefPosition to JSON
-    // const jsonECI = JSON.stringify(eciPositions, null, 2);
-    const jsonNorm = JSON.stringify(normalizedPositions, null, 2);
+    return { eciPositionsOverTime, ecefPositionsOverTime, eciPositions, ecefPositions, positionsToPlotECI };
 
-    // output the coordinates
+}
+
+function updateViewerClock(start, totalSeconds) {
+    //const start = Cesium.JulianDate.fromDate(new Date());
+    let stop = Cesium.JulianDate.addSeconds(start, totalSeconds, new Cesium.JulianDate());
+    viewer.clock.startTime = start.clone();
+    viewer.clock.stopTime = stop.clone();
+    viewer.clock.currentTime = start.clone();
+    viewer.timeline.zoomTo(start, stop);
+    viewer.clock.multiplier = 20;
+    viewer.clock.clockRange = Cesium.ClockRange.LOOP_STOP;
+}
+
+function outputCoordinatesToGUI(eciPositions, ecefPositions) { 
+    
     let csvRows = eciPositions.slice(1).map(obj =>
         [obj.time, ...obj.pos.map(num => num.toFixed(3))].join('\t')
     );
@@ -309,28 +633,80 @@ function renderCesium() {
     ecefCoordinates.value = csvData;
 
     // Output the JSON containing time and coordinates of each sample
-    jsonEciCoordinates.value = jsonNorm;
+    jsonEciCoordinates.value = JSON.stringify(eciPositions, null, 2);
 
-    let satelliteSensor = new Cesium.Entity();
-    let satelliteIcon = new Cesium.Entity();
-    let satellitePath = new Cesium.Entity();
+}
 
-    // viewer.entities.removeById(satName);
-
-    var color = getSelectedColor();
-
-    const showSensor = false;
-
-    // Visualize the satellite and sensor
-    if (viewer.entities.getById(satName) !== undefined) {
-        console.log("The scenario already contains this satellite");
-        return;
-    }
-
-    satelliteIcon = viewer.entities.add({
+function addSatellitePoint(satName, positionsOverTime, color = Cesium.Color.RED) {
+    viewer.entities.add({
         position: new Cesium.CallbackProperty(function (time, result) {
             // Get satellite position at current time
-            const satPos = eciPositionsOverTime.getValue(time);
+            const satPos = positionsOverTime.getValue(time);
+            return satPos;
+        }, false),
+        point: {
+            pixelSize: 5,
+            color: (() => {
+                const c = color;
+                return new Cesium.Color(c.red, c.green, c.blue, 1.0); // Force solid color
+            })(),
+            outlineColor: Cesium.Color.BLACK,
+            outlineWidth: 1,
+            heightReference: Cesium.HeightReference.NONE
+        },
+        id: satName + "_point",
+        show: true
+    });
+}
+
+function addSatellitePath(satName, positionsOverTime, color, widthInPixels = 2) {
+    viewer.entities.add({
+        polyline: {
+            positions: new Cesium.CallbackProperty(function (time, result) {
+                // Get the ICRF to FIXED transform for the current time
+                const icrfToFixed = Cesium.Transforms.computeIcrfToFixedMatrix(time);
+                if (!Cesium.defined(icrfToFixed)) {
+                    // Fallback: just show ECI positions
+                    return positionsOverTime;
+                }
+                // Transform each ECI position to ECEF for display
+                return positionsOverTime.map(function (eciPos) {
+                    return Cesium.Matrix3.multiplyByVector(icrfToFixed, eciPos, new Cesium.Cartesian3());
+                });
+            }, false),
+            width: widthInPixels,
+            material: color,
+        },
+        billboard: undefined,
+        id: satName + "_path",
+    });
+}
+
+function addSatelliteLabel(satName, positionsOverTime, sizeInPx = 16) {
+    viewer.entities.add({
+        position: new Cesium.CallbackProperty(function (time, result) {
+            const satPos = positionsOverTime.getValue(time);
+            return satPos;
+        }, false),
+        label: {
+            text: satName,
+            font: `${sizeInPx}px sans-serif`,
+            fillColor: Cesium.Color.YELLOW,
+            outlineColor: Cesium.Color.BLACK,
+            outlineWidth: 2,
+            style: Cesium.LabelStyle.FILL_AND_OUTLINE,
+            verticalOrigin: Cesium.VerticalOrigin.BOTTOM,
+            pixelOffset: new Cesium.Cartesian2(0, -20)
+        },
+        id: satName + "_label"
+    });
+}
+
+function addSatelliteIcon(satName, positionsOverTime) {
+    viewer.entities.add({
+        position: new Cesium.CallbackProperty(function (time, result) {
+            // Get satellite position at current time
+            const satPos = positionsOverTime.getValue(time);
             return satPos;
         }, false),
         //point: { pixelSize: 0, color: Cesium.Color.RED },
@@ -339,10 +715,10 @@ function renderCesium() {
             image: "../images/satellite.png",
             scale: 1,
         },
-        id: satName + "_icon",
+        id: satName + "_icon", // TODO: Remove orientation if not needed
         orientation: new Cesium.CallbackProperty(function (time, result) {
             // Get satellite position at current time
-            const satPos = eciPositionsOverTime.getValue(time);
+            const satPos = positionsOverTime.getValue(time);
             if (!satPos) return Cesium.Quaternion.IDENTITY;
 
             // Nadir direction: from satellite to Earth's center
@@ -361,11 +737,13 @@ function renderCesium() {
             return Cesium.Quaternion.fromAxisAngle(axis, angle);
         }, false)
     });
+}
 
-    satelliteSensor = viewer.entities.add({
+function addSatelliteSensor(satName, positionsOverTime) {
+    viewer.entities.add({
         position: new Cesium.CallbackProperty(function (time, result) {
             // Get satellite position at current time
-            const satPos = eciPositionsOverTime.getValue(time);
+            const satPos = positionsOverTime.getValue(time);
             if (!satPos) return satPos;
 
             // Nadir direction: from satellite to Earth's center
@@ -389,10 +767,10 @@ function renderCesium() {
             material: color,
             outline: false,
         },
-        show: showSensor,
+        show: true,
         orientation: new Cesium.CallbackProperty(function (time, result) {
             // Get satellite position at current time
-            const satPos = eciPositionsOverTime.getValue(time);
+            const satPos = positionsOverTime.getValue(time);
             if (!satPos) return Cesium.Quaternion.IDENTITY;
 
             // Nadir direction: from satellite to Earth's center
@@ -411,49 +789,19 @@ function renderCesium() {
             return Cesium.Quaternion.fromAxisAngle(axis, angle);
         }, false)
     });
-
-    // Create a polyline that transforms ECI positions to ECEF at the current time
-    satellitePath = viewer.entities.add({
-        polyline: {
-            positions: new Cesium.CallbackProperty(function (time, result) {
-                // Get the ICRF to FIXED transform for the current time
-                const icrfToFixed = Cesium.Transforms.computeIcrfToFixedMatrix(time);
-                if (!Cesium.defined(icrfToFixed)) {
-                    // Fallback: just show ECI positions
-                    return positionsToPlotECI;
-                }
-                // Transform each ECI position to ECEF for display
-                return positionsToPlotECI.map(function (eciPos) {
-                    return Cesium.Matrix3.multiplyByVector(icrfToFixed, eciPos, new Cesium.Cartesian3());
-                });
-            }, false),
-            width: 2,
-            material: getSelectedColor(),
-        },
-        billboard: undefined,
-        id: satName + "_path",
-    });
-
-    let initialized = false;
-
-    viewer.scene.globe.tileLoadProgressEvent.addEventListener(() => {
-        if (!initialized && viewer.scene.globe.tilesLoaded === true) {
-            viewer.clock.shouldAnimate = true;
-            initialized = true;
-            viewer.scene.camera.zoomOut(7000000);
-        }
-    });
-
-    viewInICRF();
 }
 
 function viewInICRF() {
     viewer.camera.flyHome(0);
-    scene.postUpdate.addEventListener(icrf);
-    scene.globe.enableLighting = true;
+    viewer.scene.postUpdate.addEventListener(icrf);
+    viewer.scene.globe.enableLighting = true;
 }
 
 function icrf(scene, time) {
+    // Only apply ICRF transform when enabled (zoomed out)
+    if (!icrfEnabled) {
+        return;
+    }
 
     if (scene.mode !== Cesium.SceneMode.SCENE3D) {
         return;
@@ -472,12 +820,13 @@ function icrf(scene, time) {
 
 function removeAllEntities() {
     viewer.entities.removeAll();
-    addEQPlane();
 }
 
 // Add an event listener to the submit button
 propagateFromTLE.addEventListener('click', function () {
-    propagateAndPlot();
+    iso8601Start = picker.getStartDate().format("YYYY-MM-DDTHH:mm:ss.sssZ");
+    iso8601End = picker.getEndDate().format("YYYY-MM-DDTHH:mm:ss.sssZ");
+    propagateAndRender(tleText.value, timestepInSecondsField.value, iso8601Start, iso8601End);
 });
 
 function takeSnapshot() {
@@ -504,20 +853,10 @@ function takeSnapshot() {
     viewer.render();
 }
 
-function propagateAndPlot() {
-    console.log("Propagating from TLE");
-    timestepInSeconds = parseFloat(timestepInSecondsField.value);
-
-    // TODO: Put this on a button somewhere else
-    if (tleText.value === "") {
-        console.log("TLE is empty. Randomizing satellite.");
-        randomizeSatellite();
-    }
-
-    renderCesium();
-}
-
 propagateFromElements.addEventListener('click', function () {
+
+    iso8601Start = picker.getStartDate().format("YYYY-MM-DDTHH:mm:ss.sssZ");
+    iso8601End = picker.getEndDate().format("YYYY-MM-DDTHH:mm:ss.sssZ");
 
     const semiMajorAxisInput = document.getElementById('semiMajorAxis');
     const eccentricityInput = document.getElementById('eccentricity');
@@ -569,8 +908,13 @@ propagateFromElements.addEventListener('click', function () {
     const argumentOfPerigee = parseFloat(argumentOfPerigeeInput.value);
     const meanAnomaly = parseFloat(meanAnomalyInput.value);
 
-    elements2TLE(timestamp, semiMajorAxis, eccentricity, inclination, rightAscension, argumentOfPerigee, meanAnomaly);
-    propagateAndPlot();
+    let tle = elements2TLE("", timestamp, semiMajorAxis, eccentricity, inclination, rightAscension, argumentOfPerigee, meanAnomaly);
+    let timestepInSeconds = parseFloat(timestepInSecondsField.value);
+
+    tleText.value = tle;
+
+    propagateAndRender(tle, timestepInSeconds, iso8601Start, iso8601End);
+
 });
 
 function randomizeSatellite() {
@@ -582,29 +926,20 @@ function randomizeSatellite() {
     const rightAscension = Math.floor(Math.random() * 360);
     const argumentOfPerigee = Math.floor(Math.random() * 360);
     const meanAnomaly = Math.floor(Math.random() * 360);
-/*
-    document.getElementById('semiMajorAxis').value = semiMajorAxis.toFixed(3);
-    document.getElementById('eccentricity').value = eccentricity.toFixed(6);
-    document.getElementById('inclination').value = inclination.toFixed(3);
-    document.getElementById('rightAscension').value = rightAscension.toFixed(3);
-    document.getElementById('argumentOfPerigee').value = argumentOfPerigee.toFixed(3);
-    document.getElementById('anomaly').value = meanAnomaly.toFixed(3);
-*/
-    elements2TLE(timestamp, semiMajorAxis, eccentricity, inclination, rightAscension, argumentOfPerigee, meanAnomaly);
+    /*
+        document.getElementById('semiMajorAxis').value = semiMajorAxis.toFixed(3);
+        document.getElementById('eccentricity').value = eccentricity.toFixed(6);
+        document.getElementById('inclination').value = inclination.toFixed(3);
+        document.getElementById('rightAscension').value = rightAscension.toFixed(3);
+        document.getElementById('argumentOfPerigee').value = argumentOfPerigee.toFixed(3);
+        document.getElementById('anomaly').value = meanAnomaly.toFixed(3);
+    */
+    return elements2TLE("", timestamp, semiMajorAxis, eccentricity, inclination, rightAscension, argumentOfPerigee, meanAnomaly);
 
 }
 
 clearButton.addEventListener('click', function () {
     removeAllEntities();
-});
-
-eqButton.addEventListener('click', function () {
-    const eqPlane = viewer.entities.getById('eqCelestial');
-    if (eqPlane.isShowing) {
-        eqPlane.show = false;
-    } else {
-        eqPlane.show = true;
-    }
 });
 
 addStation.addEventListener('click', function () {
@@ -643,6 +978,8 @@ function addFacility() {
 
 computeAccess.addEventListener('click', function () {
 
+    accessTextArea.value = "Computing access intervals... please wait.\n";
+
     removeAllEntities();
     let uriData = [];
     let tleArray = tleText.value.split('\n');
@@ -661,7 +998,9 @@ computeAccess.addEventListener('click', function () {
     }
 
     addFacility();
-    renderCesium();
+
+    // TODO: Add check if already propagated
+    propagateAndRender(tleText.value, timestepInSeconds.value, iso8601Start, iso8601End);
 
     const coordinates = observerCoordinates.value;
     if (coordinates.split(',').length < 2) {
@@ -672,7 +1011,13 @@ computeAccess.addEventListener('click', function () {
     uriData.push(iso8601Start);
     uriData.push(iso8601End);
     uriData.push(timestepInSecondsField.value);
-    uriData.push("5");
+
+    let visibilityThresold = 0;
+    if (document.getElementById("visibilityThreshold").value !== "") {
+        visibilityThresold = parseFloat(document.getElementById("visibilityThreshold").value);
+    }
+
+    uriData.push(visibilityThresold);
 
     const uriReq = uriData.map(item => encodeURIComponent(item)).join('/');
 
@@ -688,8 +1033,8 @@ computeAccess.addEventListener('click', function () {
             //console.log(jsonObject);
             //const data = JSON.parse(response.json());
             const csvRows = [];
-            const header = "start[iso8601],end[iso8601],duration[s]";
-            csvRows.push(header);
+            csvRows.push("Access report to " + coordinates + "\n");
+            csvRows.push("start[iso8601],end[iso8601],duration[s]");
             jsonObject.forEach(obj => {
                 console.log(obj);
                 const [value1, value2, value3] = obj.split(",");
@@ -709,27 +1054,20 @@ computeAccess.addEventListener('click', function () {
 
 });
 
-function elements2TLE(timestamp, semiMajorAxis, eccentricity, inclination, rightAscension, argumentOfPerigee, meanAnomaly) {
+function elements2TLE(name, timestamp, semiMajorAxis, eccentricity, inclination, rightAscension, argumentOfPerigee, meanAnomaly) {
 
     // satelliteNumber, classification, timestamp, launchYear, launchPiece, launchNumber, meanMotionFirstDerivative, meanMotionSecondDerivative, bStar, elementNumber, ephemerisType
     const tleLine1 = buildLine1(1, 'U', new Date(timestamp), 2023, 'A', 92, 0, 0, 0, 123, 0);
 
     // satelliteNumber, semiMajorAxis, eccentricity, inclination, raan, pa, meanAnomaly, revolutionNumberAtEpoch
     const tleLine2 = buildLine2(1, semiMajorAxis, eccentricity, inclination, rightAscension, argumentOfPerigee, meanAnomaly, 12345);
-    tleText.value = randomName() + '\r\n' + tleLine1 + '\r\n' + tleLine2;
 
-}
+    if (name === "") {
+        name = randomName();
+    }
 
-function randomName() {
+    return name + '\r\n' + tleLine1 + '\r\n' + tleLine2;
 
-    const array1 = ["Messi", "Dibu", "Fake", "Alfajor", "Coffee", "Mate", "SAR", "Moria", "ISE", "Gulich","CBA"];
-    const array2 = ["-SAT", " Sat", " X", " 1A", " 1B", " 2"];
-
-    const randomIndex1 = Math.floor(Math.random() * array1.length);
-    const randomIndex2 = Math.floor(Math.random() * array2.length);
-    const randomIndex3 = Math.floor(Math.random() * 99);
-
-    return array1[randomIndex1] + array2[randomIndex2] + randomIndex3;
 }
 
 function formatValue(value, decimalPlaces) {
@@ -740,52 +1078,291 @@ function formatValue(value, decimalPlaces) {
     }
 }
 
-function getRandomColor(alpha) {
-    const red = Math.random();
-    const green = Math.random();
-    const blue = Math.random();
-    return new Cesium.Color(red, green, blue, alpha);
-}
-
 function getSelectedColor() {
     const hexColor = colorTextArea.value;
-    console.log("Selected color: " + hexColor);
     let color = Cesium.Color.fromCssColorString(hexColor)
     return color
 }
 
-function toISOString(unixTimestamp) {
-    const date = new Date(unixTimestamp); // Convert to milliseconds
-    return date.toISOString();
+colorTextArea.addEventListener('change', function () {
+    viewer.entities.getById(currentSat + "_path").polyline.material = getSelectedColor();
+    viewer.entities.getById(currentSat + "_point").point.color = getSelectedColor();
+});
+
+
+function toggleSunlight() {
+    if (viewer.scene.globe.enableLighting === true) {
+        viewer.scene.globe.enableLighting = false;
+    } else {
+        viewer.scene.globe.enableLighting = true;
+    }
 }
 
-colorTextArea.addEventListener('change', function () {
-    viewer.entities.getById("last_sat").polyline.material = getSelectedColor();
-});
+function toggleEQPlane() {
 
-viewer.scene.camera.changed.addEventListener(function () {
-    const camera = viewer.scene.camera;
-    // Get distance from camera to globe center
-    const cameraPos = camera.positionWC;
-    const globeCenter = Cesium.Cartesian3.ZERO;
-    const distance = Cesium.Cartesian3.distance(cameraPos, globeCenter);
-
-    // Adjust these values as needed
-    const minRate = 0.01; // slowest rotation when zoomed in
-    const maxRate = 1.0;  // fastest rotation when zoomed out
-    const minDist = 6371000; // distance at which rotation is slowest
-    const maxDist = 7000000; // distance at which rotation is fastest
-
-    // Linear interpolation between minRate and maxRate
-    let rate;
-    if (distance <= minDist) {
-        rate = minRate;
-    } else if (distance >= maxDist) {
-        rate = maxRate;
-    } else {
-        rate = minRate + (maxRate - minRate) * ((distance - minDist) / (maxDist - minDist));
+    if (viewer.entities.getById('eqLine') !== undefined) {
+        if (viewer.entities.getById('eqLine').show) {
+            viewer.entities.getById('eqLine').show = false;
+            viewer.entities.getById('eqPlane').show = false;
+            return;
+        }
+        viewer.entities.getById('eqLine').show = true;
+        viewer.entities.getById('eqPlane').show = true;
+        return;
     }
 
-    viewer.scene.screenSpaceCameraController._maximumRotateRate = rate;
-});
+    viewer.entities.add({
+        name: "Equatorial Line",
+        id: "eqLine",
+        show: true,
+        polyline: {
+            positions: Cesium.Cartesian3.fromDegreesArray(
+                Array.from({ length: 361 }, (_, i) => [i - 180, 0]).flat()
+            ),
+            width: 1.5,
+            material: Cesium.Color.YELLOW.withAlpha(0.5)
+        }
+    });
 
+    // Use maximum possible height for the equatorial wall
+    viewer.entities.add({
+        name: "Celestial EQ",
+        id: "eqPlane",
+        show: true,
+        wall: {
+            positions: Cesium.Cartesian3.fromDegreesArrayHeights([
+                -180.0, 0.0, 0.0,
+                -90.0, 0.0, 0.0,
+                0.0, 0.0, 0.0,
+                90.0, 0.0, 0.0,
+                180.0, 0.0, 0.0,
+            ]),
+            minimumHeights: [6000000, 6000000, 6000000, 6000000, 6000000],
+            material: new Cesium.ImageMaterialProperty({
+                image: "../images/gradient_yellow_fade.png",
+                transparent: true,
+                repeat: new Cesium.Cartesian2(1.0, 1.0)
+            }),
+        },
+    });
+
+}
+
+function toggleLabels() {
+    satelliteStack.forEach(element => {
+        const label = viewer.entities.getById(element + "_label");
+        if (label) {
+            label.show = !label.show;
+        }
+    });
+}
+
+function toggleIcons() {
+    satelliteStack.forEach(element => {
+        const icon = viewer.entities.getById(element + "_icon");
+        const point = viewer.entities.getById(element + "_point");
+        if (icon) {
+            icon.show = !icon.show;
+            point.show = !point.show;
+        }
+    });
+}
+
+async function populateWalkerDelta() {
+
+    removeAllEntities();
+
+    // Get input elements and their values
+    const semiMajorAxisElement = document.getElementById('semiMajorAxis');
+    const inclinationElement = document.getElementById('inclination');
+    const rightAscensionElement = document.getElementById('rightAscension');
+    const argumentOfPerigeeElement = document.getElementById('argumentOfPerigee');
+    const meanAnomalyElement = document.getElementById('anomaly');
+    const nOfPlanesElement = document.getElementById('nOfPlanes');
+    const nOfSatsElement = document.getElementById('nOfSats');
+    const phaseOffsetElement = document.getElementById('phaseOffset');
+
+    // Check if all required elements exist
+    if (!semiMajorAxisElement || !inclinationElement || !nOfPlanesElement || !nOfSatsElement || !phaseOffsetElement) {
+        console.error("One or more required input elements not found in the DOM");
+        alert("Error: Missing required input fields for Walker Delta constellation.");
+        return;
+    }
+
+    // Get values and validate they're not empty
+    const semiMajorAxisInput = semiMajorAxisElement.value.trim();
+    const inclinationInput = inclinationElement.value.trim();
+    const rightAscensionInput = rightAscensionElement.value.trim();
+    const argumentOfPerigeeInput = argumentOfPerigeeElement.value.trim();
+    const meanAnomalyInput = meanAnomalyElement.value.trim();
+    const nOfPlanesInput = nOfPlanesElement.value.trim();
+    const nOfSatsInput = nOfSatsElement.value.trim();
+    const phaseOffsetInput = phaseOffsetElement.value.trim();
+
+    // Check for empty fields
+    if (!semiMajorAxisInput || !inclinationInput || !rightAscensionInput ||
+        !argumentOfPerigeeInput || !meanAnomalyInput || !nOfPlanesInput || !nOfSatsInput || !phaseOffsetInput) {
+        console.error("One or more required fields are empty");
+        alert("Error: Please fill in all orbital element fields and constellation parameters.");
+        return;
+    }
+
+    // Parse and validate numeric values
+    let semiMajorAxis = parseFloat(semiMajorAxisInput);
+    let inclination = parseFloat(inclinationInput);
+    let rightAscension = parseFloat(rightAscensionInput);
+    let argumentOfPerigee = parseFloat(argumentOfPerigeeInput);
+    let meanAnomaly = parseFloat(meanAnomalyInput);
+    let nOfPlanes = parseInt(nOfPlanesInput);
+    let nOfSats = parseInt(nOfSatsInput);
+    let phaseOffset = parseFloat(phaseOffsetInput);
+
+    // Assuming you meant LEO heights
+    if (semiMajorAxis < 2000) {
+        semiMajorAxis = 6378 + semiMajorAxis;
+        console.warn("Converted altitude to semi-major axis: " + semiMajorAxis + " km");
+    }
+
+    if (inclination < 0 || inclination > 180) {
+        console.error("Invalid inclination: " + inclination);
+        alert("Error: Inclination must be between 0 and 180 degrees.");
+        return;
+    }
+
+    if (rightAscension < 0 || rightAscension >= 360) {
+        while (rightAscension < 0) {
+            rightAscension += 360;
+        }
+        while (rightAscension >= 360) {
+            rightAscension -= 360;
+        }
+    }
+
+    if (argumentOfPerigee < 0 || argumentOfPerigee >= 360 || isNaN(argumentOfPerigee)) {
+        console.error("Invalid argument of perigee: " + argumentOfPerigee);
+        alert("Error: Argument of perigee must be between 0 and 360 degrees.");
+        return;
+    }
+
+    if (meanAnomaly < 0 || meanAnomaly >= 360) {
+        console.error("Invalid mean anomaly: " + meanAnomaly);
+        alert("Error: Mean anomaly must be between 0 and 360 degrees.");
+        return;
+    }
+
+    // Validate constellation parameters
+    if (nOfPlanes < 1 || nOfPlanes > 100) {
+        console.error("Invalid number of planes: " + nOfPlanes);
+        alert("Error: Number of planes must be between 1 and 100.");
+        return;
+    }
+
+    if (nOfSats < 1 || nOfSats > 10000) {
+        console.error("Invalid number of satellites: " + nOfSats);
+        alert("Error: Total number of satellites must be between 1 and 10,000.");
+        return;
+    }
+
+    if (nOfSats % nOfPlanes !== 0) {
+        console.error("Satellites per plane not an integer: " + nOfSats + "/" + nOfPlanes);
+        alert("Error: Total satellites must be evenly divisible by number of planes.");
+        return;
+    }
+
+    const satsPerPlane = nOfSats / nOfPlanes;
+
+    if (satsPerPlane < 1) {
+        console.error("Too few satellites per plane: " + satsPerPlane);
+        alert("Error: Must have at least 1 satellite per plane.");
+        return;
+    }
+
+    console.log("Generating Walker Delta constellation: " + nOfSats + "/" + nOfPlanes + "/" + phaseOffset);
+
+    let orbitalPeriodMinutes = getOrbitalPeriodMinutes(semiMajorAxis);
+    console.log("Orbital period (minutes): " + orbitalPeriodMinutes.toFixed(2));
+
+    // Calculate phasing within each plane (satellites evenly spaced)
+    let phasing = 360 / satsPerPlane;
+
+    // Calculate Walker Delta phase offset: Δθ = f × 360 / t
+    // This is the phase difference between equivalent satellites in adjacent planes
+    let walkerPhaseOffset = (phaseOffset * 360) / nOfSats;
+    console.log("Walker Delta phase offset per plane: " + walkerPhaseOffset.toFixed(2) + " degrees");
+
+    // Set consistent time window for entire constellation
+    const today = new Date();
+    today.setMilliseconds(0);
+    today.setSeconds(0);
+    picker.setStartDate(today);
+    picker.setEndDate(shiftDateByMinutes(today, Math.ceil(orbitalPeriodMinutes)));
+    await updateGlobalDates();
+
+    // Lock down the time window before any propagation
+    const constellationStartTime = picker.getStartDate().format("YYYY-MM-DDTHH:mm:ss.sssZ");
+    const constellationEndTime = picker.getEndDate().format("YYYY-MM-DDTHH:mm:ss.sssZ");
+
+    console.log("Constellation propagation window (UTC): " + constellationStartTime + " to " + constellationEndTime);
+    tleText.value = "";
+
+    const timestamp = new Date(constellationStartTime).getTime();
+
+    // Generate all TLEs first to avoid clock interference
+    const satelliteTLEs = [];
+
+    for (let plane = 0; plane < nOfPlanes; plane++) {
+        // RAAN: evenly distribute planes around the equator
+        let raan = (plane * (360 / nOfPlanes) + rightAscension) % 360;
+
+        // Apply Walker Delta phase offset to this plane
+        // Each plane is offset by plane_index × walkerPhaseOffset in mean anomaly
+        let planePhaseOffset = (plane * walkerPhaseOffset) % 360;
+
+        console.log(`[WALKER] Plane ${plane}: RAAN=${raan.toFixed(2)}°, PhaseOffset=${planePhaseOffset.toFixed(2)}°`);
+
+        for (let sat = 0; sat < satsPerPlane; sat++) {
+            // Mean anomaly: base + satellite spacing within plane + Walker Delta phase offset
+            let anomaly = (meanAnomaly + sat * phasing + planePhaseOffset) % 360;
+            const satName = `P${plane}_S${sat}`;
+            let tle = elements2TLE(satName, timestamp, semiMajorAxis, 0.0001, inclination, raan, argumentOfPerigee, anomaly);
+
+            satelliteTLEs.push({
+                name: satName,
+                tle: tle,
+                plane: plane,
+                sat: sat,
+                anomaly: anomaly
+            });
+        }
+    }
+
+    for (let satData of satelliteTLEs) {
+
+        console.log(`[CONSTELLATION] Processing ${satData.name}...`);
+
+        // propagateAndRender(tle, timestepInSeconds, iso8601Start, iso8601End) 
+        await propagateAndRender(satData.tle, timestepInSeconds, iso8601Start, iso8601End);
+
+        console.log(`[CONSTELLATION] Added ${satData.name} (Plane ${satData.plane}, Sat ${satData.sat}, MA ${satData.anomaly.toFixed(1)}°)`);
+    }
+
+}
+
+showEQPlaneCheckbox.addEventListener('change', toggleEQPlane);
+
+showSunlightCheckbox.addEventListener('change', toggleSunlight);
+
+showIconsCheckbox.addEventListener('change', toggleIcons);
+
+showLabelsCheckbox.addEventListener('change', toggleLabels);
+
+takeSnapshotButton.addEventListener('click', takeSnapshot);
+
+populateWalkerDeltaButton.addEventListener('click', async function () {
+    try {
+        await populateWalkerDelta();
+    } catch (error) {
+        console.error("Error in populateWalkerDelta:", error);
+        alert("Error generating Walker Delta constellation: " + error.message);
+    }
+});

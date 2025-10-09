@@ -92,8 +92,6 @@ export function buildLine2(satelliteNumber, semiMajorAxis, eccentricity, inclina
 
     buffer.push(checksum(buffer.join('')));
 
-    console.log(buffer);
-
     return buffer.join('');
 
 }

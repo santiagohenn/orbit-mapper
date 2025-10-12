@@ -1,7 +1,9 @@
 const express = require('express');
 const app = express();
 const path = require('path');
-const config = require('dotenv').config({ path: './KEYS.env' });
+// Load environment variables from both files
+require('dotenv').config({ path: './KEYS.env' });
+require('dotenv').config({ path: './.env' });
 const CopyWebpackPlugin = require('copy-webpack-plugin');
 
 module.exports = {
@@ -33,7 +35,8 @@ module.exports = {
     }
 };
 
-const cesiumApiKey = process.env.CESIUM_API_KEY;
+// Get Cesium API key from either environment variable name
+const cesiumApiKey = process.env.CESIUM_ION_ACCESS_TOKEN || process.env.CESIUM_API_KEY;
 
 // Serve static files from the "public" directory
 app.use(express.static(path.join(__dirname, 'public')));

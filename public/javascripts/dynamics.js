@@ -61,11 +61,11 @@ let viewer, scene, time;
 let timestepInSeconds, iso8601Start, iso8601End;
 let icrfEnabled = true; // Track ICRF state
 
-document.addEventListener('DOMContentLoaded', function () {
-    initCesiumRender();
-    setDefaultDates();
+document.addEventListener('DOMContentLoaded', async function () {
+    await initCesiumRender();
+    await setDefaultDates();
     const randomTle = randomizeSatellite();
-    propagateAndRender(randomTle, 60.0, iso8601Start, iso8601End);
+    await propagateAndRender(randomTle, 60.0, iso8601Start, iso8601End);
 
     // Debugging:
     // addWalkerDebugConsole();
@@ -91,18 +91,23 @@ function shiftDateByMinutes(date, minutes) {
     return new Date(date.getTime() + minutes * 60000);
 }
 
-function initCesiumRender() {
+async function initCesiumRender() {
 
-    /*
-    fetch('/get-cesium-config')
+    // Configure Cesium Ion access token
+    await fetch('/get-cesium-config')
       .then(response => response.json())
       .then(cesiumConfig => {
-        Cesium.Ion.defaultAccessToken = cesiumConfig.apiKey;
+        if (cesiumConfig.apiKey) {
+          Cesium.Ion.defaultAccessToken = cesiumConfig.apiKey;
+          console.log('Cesium Ion token configured successfully');
+        } else {
+          console.warn('No Cesium Ion token found - using offline mode');
+        }
       })
       .catch(error => {
-        console.error('Error obtaining or setting Cesium API key:', error);
+        console.error('Error obtaining Cesium API key:', error);
+        console.warn('Falling back to offline mode');
       });
-      */
 
     // Optimized for offline usage:
     viewer = new Cesium.Viewer("cesiumContainer", {
@@ -187,7 +192,7 @@ async function propagateAndRenderWalkingDelta(tle, timestepInSeconds, iso8601Sta
         return;
     }
 
-    if (timestepInSeconds === null || timestepInSeconds === undefined) {
+    if (timestepInSeconds === null || timestepInSeconds === undefined || isNaN(timestepInSeconds)) {
         console.log("Timestep is not defined. Using default value of 30 seconds.");
         timestepInSeconds = 30;
     } else if (timestepInSeconds < 1) {
@@ -195,7 +200,7 @@ async function propagateAndRenderWalkingDelta(tle, timestepInSeconds, iso8601Sta
         timestepInSeconds = 1;
     }
 
-    let tleArray = tle.split('\n');
+    let tleArray = tle.split('\n').map(l => l.trim()).filter(l => l.length > 0);
     let start = Cesium.JulianDate.fromIso8601(iso8601Start);
     let stop = Cesium.JulianDate.fromIso8601(iso8601End);
     let totalSeconds = Cesium.JulianDate.secondsDifference(stop, start);
@@ -268,7 +273,7 @@ async function propagateAndRender(tle, timestepInSeconds, iso8601Start, iso8601E
         return;
     }
 
-    if (timestepInSeconds === null || timestepInSeconds === undefined) {
+    if (timestepInSeconds === null || timestepInSeconds === undefined || isNaN(timestepInSeconds)) {
         console.log("Timestep is not defined. Using default value of 30 seconds.");
         timestepInSeconds = 30;
     } else if (timestepInSeconds < 1) {
@@ -276,7 +281,7 @@ async function propagateAndRender(tle, timestepInSeconds, iso8601Start, iso8601E
         timestepInSeconds = 1;
     }
 
-    let tleArray = tle.split('\n');
+    let tleArray = tle.split('\n').map(l => l.trim()).filter(l => l.length > 0);
     let start = Cesium.JulianDate.fromIso8601(iso8601Start);
     let stop = Cesium.JulianDate.fromIso8601(iso8601End);
     let totalSeconds = Cesium.JulianDate.secondsDifference(stop, start);
@@ -312,6 +317,7 @@ async function propagateAndRender(tle, timestepInSeconds, iso8601Start, iso8601E
 
     updateViewerClock(start, totalSeconds);
 
+    console.log("Propagating " + satName + "\n" + tle1 + "\n" + tle2 + "\n" +  " from " + iso8601Start + " to " + iso8601End + " (" + totalSeconds + " seconds) with timestep " + timestepInSeconds + " seconds.");
     let trajectory = await propagateSGP4(tle1, tle2, start, totalSeconds, timestepInSeconds);
 
     outputCoordinatesToGUI(trajectory.eciPositions, trajectory.ecefPositions);
@@ -360,17 +366,30 @@ async function propagateSGP4(tleLine1, tleLine2, start, totalSeconds, timestepIn
         const timeStamp = Cesium.JulianDate.addSeconds(start, i, new Cesium.JulianDate());
         const jsDate = Cesium.JulianDate.toDate(timeStamp);
         const sgp4ECIPos = await satellite.propagate(satrec, jsDate);
+        if (!sgp4ECIPos || !sgp4ECIPos.position) {
+            // SGP4 can fail for bad TLEs or out-of-range epochs
+            // Skip this sample safely
+            continue;
+        }
         const gmst = satellite.gstime(jsDate);
         const geodeticPos = satellite.eciToGeodetic(sgp4ECIPos.position, gmst);
         const ecefPos = satellite.eciToEcf(sgp4ECIPos.position, gmst);
 
-        const eciPosition = Cesium.Cartesian3.fromElements(sgp4ECIPos.position.x * 1000,
-            sgp4ECIPos.position.y * 1000,
-            sgp4ECIPos.position.z * 1000);
+        const ex = sgp4ECIPos.position.x * 1000;
+        const ey = sgp4ECIPos.position.y * 1000;
+        const ez = sgp4ECIPos.position.z * 1000;
+        if (!isFinite(ex) || !isFinite(ey) || !isFinite(ez)) {
+            continue;
+        }
+        const eciPosition = Cesium.Cartesian3.fromElements(ex, ey, ez);
 
-        const ecefPosition = new Cesium.Cartesian3(ecefPos.x * 1000,
-            ecefPos.y * 1000,
-            ecefPos.z * 1000);
+        const ecfx = ecefPos.x * 1000;
+        const ecfy = ecefPos.y * 1000;
+        const ecfz = ecefPos.z * 1000;
+        if (!isFinite(ecfx) || !isFinite(ecfy) || !isFinite(ecfz)) {
+            continue;
+        }
+        const ecefPosition = new Cesium.Cartesian3(ecfx, ecfy, ecfz);
 
         ecefSampledPositions.addSample(timeStamp, ecefPosition);
         eciSampledPositions.addSample(timeStamp, eciPosition);
@@ -622,7 +641,13 @@ function removeAllEntities() {
 propagateFromTLE.addEventListener('click', function () {
     iso8601Start = picker.getStartDate().format("YYYY-MM-DDTHH:mm:ss.sssZ");
     iso8601End = picker.getEndDate().format("YYYY-MM-DDTHH:mm:ss.sssZ");
-    propagateAndRender(tleText.value, timestepInSecondsField.value, iso8601Start, iso8601End);
+    const step = parseFloat(timestepInSecondsField.value);
+    try {
+        propagateAndRender(tleText.value, step, iso8601Start, iso8601End);
+    } catch (err) {
+        console.error('propagateFromTLE failed:', err);
+        alert('Propagation failed. Check the TLE format and timestep. See console for details.');
+    }
 });
 
 function takeSnapshot() {
@@ -704,12 +729,16 @@ propagateFromElements.addEventListener('click', function () {
     const argumentOfPerigee = parseFloat(argumentOfPerigeeInput.value);
     const meanAnomaly = parseFloat(meanAnomalyInput.value);
 
-    let tle = elements2TLE("", timestamp, semiMajorAxis, eccentricity, inclination, rightAscension, argumentOfPerigee, meanAnomaly);
-    let timestepInSeconds = parseFloat(timestepInSecondsField.value);
-
+    const tle = elements2TLE("", timestamp, semiMajorAxis, eccentricity, inclination, rightAscension, argumentOfPerigee, meanAnomaly);
+    // Populate textarea so user can see/edit the generated TLE
     tleText.value = tle;
-
-    propagateAndRender(tle, timestepInSeconds, iso8601Start, iso8601End);
+    const timestepInSeconds = parseFloat(timestepInSecondsField.value);
+    try {
+        propagateAndRender(tle, timestepInSeconds, iso8601Start, iso8601End);
+    } catch (err) {
+        console.error('propagateFromElements failed:', err);
+        alert('Propagation from elements failed. See console for details.');
+    }
 
 });
 
@@ -772,7 +801,7 @@ function addFacility() {
     });
 }
 
-computeAccess.addEventListener('click', function () {
+computeAccess.addEventListener('click', async function () {
 
     accessTextArea.value = "Computing access intervals... please wait.\n";
 
@@ -795,9 +824,6 @@ computeAccess.addEventListener('click', function () {
 
     addFacility();
 
-    // TODO: Add check if already propagated
-    propagateAndRender(tleText.value, timestepInSeconds.value, iso8601Start, iso8601End);
-
     const coordinates = observerCoordinates.value;
     if (coordinates.split(',').length < 2) {
         console.log("Coordinates invalid");
@@ -806,7 +832,8 @@ computeAccess.addEventListener('click', function () {
     uriData.push(coordinates);
     uriData.push(iso8601Start);
     uriData.push(iso8601End);
-    uriData.push(timestepInSecondsField.value);
+    const accessStep = parseFloat(timestepInSecondsField.value);
+    uriData.push(isNaN(accessStep) ? 30 : accessStep);
 
     let visibilityThresold = 0;
     if (document.getElementById("visibilityThreshold").value !== "") {
@@ -846,6 +873,13 @@ computeAccess.addEventListener('click', function () {
         });
     computeAccess.disabled = false;
     computeAccess.textContent = "Compute access intervals";
+
+    // TODO: Add check if already propagated
+    try {
+        await propagateAndRender(tleText.value, accessStep, iso8601Start, iso8601End);
+    } catch (err) {
+        console.error('Propagation during computeAccess failed:', err);
+    }
 
 });
 
